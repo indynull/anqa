@@ -304,6 +304,8 @@ pub struct Hud {
     tasks_focus: Option<usize>,
     /// True after a click on the focused Overview list row (second click opens).
     overview_row_armed: bool,
+    /// True after a click on the focused session row (second click opens).
+    session_row_armed: bool,
     overview_window: icedtea::collection::VisibleWindow,
     overview_heights: Vec<f32>,
     overview_scroll_id: Id,
@@ -498,6 +500,7 @@ impl Default for Hud {
             overview_section: crate::model::OverviewSection::Session,
             tasks_focus: None,
             overview_row_armed: false,
+            session_row_armed: false,
             overview_window: icedtea::collection::VisibleWindow::new(400.0),
             overview_heights: vec![],
             overview_scroll_id: Id::new("hud-overview-list"),
@@ -1045,10 +1048,11 @@ impl Hud {
                 if i >= self.sessions().len() {
                     return Task::none();
                 }
-                if self.active == i && !self.browse_mode() {
+                if self.active == i && self.session_row_armed && !self.browse_mode() {
                     return self.update(Message::SelectSession(i));
                 }
                 self.set_active(i);
+                self.session_row_armed = true;
                 self.ensure_active_visible()
             }
             Message::SelectSession(i) => {
@@ -3961,6 +3965,7 @@ impl Hud {
     fn set_active(&mut self, i: usize) {
         self.active = i;
         self.list_selection = icedtea::collection::Selection::Single(i);
+        self.session_row_armed = false;
     }
 
     pub fn session_tile_height(&self, index: usize) -> f32 {
@@ -10789,6 +10794,19 @@ mod tests {
         let _ = hud.update(Message::FocusNote("n-a".into()));
         assert!(hud.composing_note());
         assert_eq!(hud.note_draft().id, "n-a");
+    }
+
+    #[test]
+    fn first_click_on_default_session_does_not_open() {
+        let mut hud = three_session_picker();
+        assert_eq!(hud.active, 0);
+        assert!(!hud.browse_mode());
+        let _ = hud.update(Message::FocusSession(0));
+        assert!(!hud.browse_mode());
+        assert!(hud.overview_pending.is_empty());
+        assert!(hud.overview.is_none());
+        let _ = hud.update(Message::FocusSession(0));
+        assert!(hud.browse_mode() || !hud.overview_pending.is_empty() || hud.overview.is_some());
     }
 
     #[test]
