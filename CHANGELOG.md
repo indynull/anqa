@@ -109,6 +109,7 @@ Cursor (`cursor`) are registered.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
 - The palette is on icedtea 0.16. Session cards highlight on release.
+  Selected list rows use icedtea list-row wash.
 - Clearing catalog or Timeline search remounts the idle list (not the
   leftover short search window).
 
