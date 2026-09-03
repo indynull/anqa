@@ -66,21 +66,6 @@ fn muted_meta(line: String, tea: icedtea::theme::Tokens) -> Element<'static, Mes
         .into()
 }
 
-fn search_shell(tea: icedtea::theme::Tokens) -> iced::widget::container::Style {
-    let s = tea.scheme();
-    iced::widget::container::Style {
-        background: Some(Background::Color(s.surface_container_highest)),
-        text_color: Some(s.on_surface),
-        border: Border {
-            color: s.outline_variant,
-            width: 1.0,
-            radius: tea.radius(icedtea::m3::shape::Component::Search),
-        },
-        shadow: iced::Shadow::default(),
-        snap: false,
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn inset_search<'a>(
     value: &str,
@@ -95,9 +80,7 @@ fn inset_search<'a>(
     container(icedtea::widget::search_input(
         value, on_input, on_clear, on_submit, tea, a11y, input_id, highlight,
     ))
-    .padding(Padding::from([6, 10]))
     .width(Length::Fill)
-    .style(move |_| search_shell(tea))
     .into()
 }
 
@@ -3809,7 +3792,17 @@ mod tests {
         assert!(prod.contains("kit::context_progress"));
         assert!(prod.contains("kit::pane_tabs"));
         assert!(prod.contains("fn inset_search"));
+        assert!(!prod.contains("fn search_shell"));
         assert!(!prod.contains("kit::search_field"));
+        let search = prod
+            .split("fn inset_search")
+            .nth(1)
+            .expect("inset_search")
+            .split("fn catalog_query_runs")
+            .next()
+            .expect("search body");
+        assert!(search.contains("widget::search_input"));
+        assert!(!search.contains("padding(Padding::from([6, 10]))"));
         assert!(prod.contains("pattern::status_bar"));
         assert!(!prod.contains("kit::status_footer"));
         assert!(!prod.contains("Message::ShowJobLog"));
