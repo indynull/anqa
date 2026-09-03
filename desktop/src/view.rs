@@ -41,6 +41,31 @@ fn rule(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     icedtea::widget::rule_h(tea, A11y::new("rule", Role::Separator))
 }
 
+fn list_tile(tea: icedtea::theme::Tokens, selected: bool) -> iced::widget::container::Style {
+    let s = tea.scheme();
+    iced::widget::container::Style {
+        background: Some(Background::Color(if selected {
+            s.surface_container
+        } else {
+            Color::TRANSPARENT
+        })),
+        text_color: Some(s.on_surface),
+        border: Border::default(),
+        shadow: iced::Shadow::default(),
+        snap: false,
+    }
+}
+
+/// Stay inside icedtea `focus::target` (4 dp grid + 2 dp ring).
+fn list_focus_pad() -> Padding {
+    Padding {
+        top: 0.0,
+        right: 6.0,
+        bottom: 0.0,
+        left: 6.0,
+    }
+}
+
 fn list_hairline(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     container(Space::new().height(1).width(Length::Fill))
         .width(Length::Fill)
@@ -692,13 +717,14 @@ fn session_list_card(
             container(body)
                 .padding(tea.density.inset())
                 .width(Length::Fill)
-                .style(move |_| icedtea::style::list_row(tea, selected)),
+                .style(move |_| list_tile(tea, selected)),
         )
         .on_release(Message::FocusSession(index))
         .on_double_click(Message::SelectSession(index)),
         list_hairline(tea),
         Space::new().height(crate::live::LIST_CARD_GAP - 1.0),
     ]
+    .padding(list_focus_pad())
     .into()
 }
 
@@ -1138,13 +1164,14 @@ fn overview_run_list<'a>(
             let card = container(face)
                 .padding(tea.density.inset())
                 .width(Length::Fill)
-                .style(move |_| icedtea::style::list_row(tea, selected));
+                .style(move |_| list_tile(tea, selected));
             column![
                 mouse_area(card)
                     .on_press(Message::FocusOverviewRow(i))
                     .on_double_click(Message::OpenOverviewRow(i)),
                 list_hairline(tea),
             ]
+            .padding(list_focus_pad())
             .into()
         },
         A11y::new(empty_title, Role::List),
@@ -1386,12 +1413,13 @@ fn closed_list_card(
             container(body)
                 .padding(tea.density.inset())
                 .width(Length::Fill)
-                .style(move |_| icedtea::style::list_row(tea, selected)),
+                .style(move |_| list_tile(tea, selected)),
         )
         .on_press(on_press)
         .on_double_click(on_open),
         list_hairline(tea),
     ]
+    .padding(list_focus_pad())
     .into()
 }
 
@@ -3766,7 +3794,8 @@ mod tests {
             "inset search must paint FieldRun highlight"
         );
         assert!(!prod.contains("let _ = highlight"));
-        assert!(prod.contains("style::list_row"));
+        assert!(prod.contains("fn list_tile"));
+        assert!(prod.contains("fn list_focus_pad"));
         assert!(prod.contains("fn session_state_from_meta"));
         assert!(prod.contains("widget::virtual_column"));
         assert!(!prod.contains("QuietColumn"));
@@ -4263,7 +4292,8 @@ mod tests {
             .next()
             .expect("card body");
         assert!(card.contains("Wrapping::None"));
-        assert!(card.contains("style::list_row"));
+        assert!(card.contains("list_tile("));
+        assert!(card.contains("list_focus_pad()"));
         let sess = prod
             .split("fn session_list_card")
             .nth(1)
@@ -4271,7 +4301,8 @@ mod tests {
             .split("fn detail_pane")
             .next()
             .expect("session card");
-        assert!(sess.contains("style::list_row"));
+        assert!(sess.contains("list_tile("));
+        assert!(sess.contains("list_focus_pad()"));
         let turns = prod
             .split("fn turns_tab")
             .nth(1)

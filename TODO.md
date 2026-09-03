@@ -22,6 +22,9 @@ work ships.
 - icedtea `motion::overlay` (`OverlayLayer`) does not implement
   `Widget::overlay`, so pick lists never open while that wrap is mounted.
   `page_body` and `fade_palette` mount it only while the fade runs.
+- icedtea 0.16 `virtual_column` paints a focus ring, then `virtual_clip`
+  covers it with the selected row. HUD insets a quiet wash 6 dp until
+  icedtea draws that ring above the clip layer.
 
 ## Always on (`just ci` / `just lint`)
 
