@@ -85,6 +85,26 @@ def default_catalog_snapshot(root: Path) -> Path:
     return cache_dir() / f"catalog-{key}.json"
 
 
+def read_catalog_snapshot_rows(dest: Path) -> list[JsonObject]:
+    """Return sessions from an existing snapshot file, or empty if unusable.
+
+    Does not walk the store or rebuild. Missing or unreadable files yield
+    an empty list. Older ``rowFormat`` values are served so a cold owner
+    can paint existing cache files. Rebuild stamp reuse still requires
+    the current snapshot version and row format.
+
+    :param dest: Snapshot path (usually :func:`default_catalog_snapshot`).
+    :returns: Cached session rows, or an empty list.
+    """
+    cached = _read_payload(dest)
+    if cached is None:
+        return []
+    raw = cached.get("sessions")
+    if not isinstance(raw, list):
+        return []
+    return [as_json_object(row) for row in raw if isinstance(row, dict)]
+
+
 def _stamp_ns(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None

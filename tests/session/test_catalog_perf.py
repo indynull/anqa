@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 
 import pytest
 from anqa.session import catalog as catalog_mod
 from anqa.session.catalog import SessionCatalogCache, list_session_catalog
+from anqa.session.mtime_export import default_catalog_snapshot
 from anqa.session.wire_timeline import fetch_session_browser_bundle
 
 
@@ -152,6 +154,68 @@ def test_catalog_list_for_rpc_delta_after_refresh(tmp_path: Path) -> None:
     ids = [str(r["sessionId"]) for r in delta["sessions"]]
     assert ids == ["one"]
     assert any(r.get("title") == "One updated" for r in delta["sessions"])
+
+
+def test_list_for_rpc_seeds_format_2_snapshot_without_joining_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cold list_for_rpc must return on-disk snapshot rows without waiting."""
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    dest = default_catalog_snapshot(traces)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(traces),
+                "stamps": [],
+                "sessions": [
+                    {
+                        "sessionId": f"snap-{i:03d}",
+                        "path": f"grok:snap-{i:03d}",
+                        "title": f"Snap {i}",
+                        "status": "complete",
+                        "harness": "grok",
+                        "sortEpoch": 1_700_000_000 + i,
+                    }
+                    for i in range(24)
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    release = threading.Event()
+    started = threading.Event()
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return []
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    done: dict[str, object] = {}
+
+    def call() -> None:
+        done["out"] = cache.list_for_rpc(limit=50)
+
+    th = threading.Thread(target=call)
+    th.start()
+    assert started.wait(timeout=2)
+    th.join(0.4)
+    assert not th.is_alive(), "list_for_rpc joined the in-flight catalog scan"
+    out = done["out"]
+    assert isinstance(out, dict)
+    assert out["total"] == 24
+    assert out["building"] is True
+    assert out["incomplete"] is True
+    assert {str(row.get("sessionId")) for row in out["sessions"]} == {
+        f"snap-{i:03d}" for i in range(24)
+    }
+    release.set()
+    th.join(timeout=5)
 
 
 def test_list_for_rpc_after_owner_restart_returns_full_snapshot(tmp_path: Path) -> None:

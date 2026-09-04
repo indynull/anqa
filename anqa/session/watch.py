@@ -11,8 +11,8 @@ from pathlib import Path
 
 from ..harness.registry import discover_dirs
 from .sources import (
-    default_catalog_root,
     is_encoded_cwd_name,
+    is_host_directory_store,
     is_host_skip_dir_name,
     list_host_session_dirs,
 )
@@ -79,6 +79,13 @@ def _is_named_host_root(root: Path, host_root: Path) -> bool:
         return False
 
 
+def _use_host_lister(root: Path, host_root: Path | None) -> bool:
+    """True for an explicit host root or a grok-shaped directory session tree."""
+    if host_root is not None and _is_named_host_root(root, host_root):
+        return True
+    return is_host_directory_store(root)
+
+
 def session_dirs_under(
     roots: list[Path],
     *,
@@ -87,14 +94,15 @@ def session_dirs_under(
 ) -> list[Path]:
     """Listed session directories under catalog *roots* (no workspace descent).
 
-    The named host root uses the shallow host lister. Other *directory
-    session* roots use adapter discover. Extra adapter stores
-    (``list_sessions=False``) contribute no session dirs — membership
-    watch only, never a recursive walk.
+    A grok/host directory session store (or an explicit *host_root*) uses
+    the shallow host lister. Jsonl adapter stores still run adapter
+    discover so file locators stay on the watch set. Extra adapter
+    stores (``list_sessions=False``) contribute no session dirs —
+    membership watch only, never a recursive walk.
     """
     if not list_sessions:
         return []
-    host = Path(host_root).expanduser() if host_root is not None else default_catalog_root()
+    named = Path(host_root).expanduser() if host_root is not None else None
     found: list[Path] = []
     seen: set[str] = set()
     for raw in roots:
@@ -102,7 +110,7 @@ def session_dirs_under(
         if not root.is_dir():
             continue
         listed = (
-            list_host_session_dirs(root) if _is_named_host_root(root, host) else discover_dirs(root)
+            list_host_session_dirs(root) if _use_host_lister(root, named) else discover_dirs(root)
         )
         listed = drop_subagent_sessions(listed)
         for session in listed:
@@ -121,14 +129,14 @@ def _no_workspace(path: Path) -> bool:
 def watch_target_paths(
     roots: list[Path],
     session_dirs: list[Path],
-    *,
-    expand_children: bool = True,
 ) -> list[Path]:
     """Directories passed to watchfiles (non-recursive). Never ``workspace/``.
 
-    *expand_children* is the directory-session path: one extra
-    level so new session dirs are subscribed. Extra adapter stores
-    (sqlite / jsonl) pass ``False`` and watch membership dirs only.
+    Membership dirs plus *session_dirs* only. A file locator (jsonl
+    transcript) contributes its parent directory. Cwd-bucket children
+    stay off the set when *session_dirs* is the dropped parent list. A
+    new session dir is a membership event on that bucket; the next
+    collect adds the parent.
     """
     out: list[Path] = []
     seen: set[str] = set()
@@ -144,17 +152,11 @@ def watch_target_paths(
 
     for path in membership_watch_dirs(roots):
         _add(path)
-        if not expand_children:
-            continue
-        try:
-            children = list(path.iterdir())
-        except OSError:
-            children = []
-        for child in children:
-            if child.is_dir() and not is_host_skip_dir_name(child.name):
-                _add(child)
     for session in session_dirs:
-        _add(Path(session))
+        loc = Path(session)
+        # File locators (jsonl transcripts) are not watch directories.
+        # The parent project/date dir sees nested writes and new siblings.
+        _add(loc.parent if loc.is_file() else loc)
     return out
 
 

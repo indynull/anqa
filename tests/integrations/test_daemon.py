@@ -16,6 +16,7 @@ from importlib import import_module
 from pathlib import Path
 
 import pytest
+from anqa.session.mtime_export import default_catalog_snapshot
 from async_wait import wait_until, wait_until_sync
 
 
@@ -822,6 +823,26 @@ def test_ensure_does_not_stop_owner_when_protocol_probe_fails(
     assert stopped == []
 
 
+def _session_dir_subscribed(server: object, session_dir: Path) -> bool:
+    """True when a serve-owned watch has armed *session_dir*."""
+    watches = getattr(server, "_fs_watches", None)
+    if not watches:
+        return False
+    try:
+        target = session_dir.resolve()
+    except OSError:
+        target = session_dir
+    for watch in watches:
+        for path in watch.subscribed_paths():
+            try:
+                if path.resolve() == target:
+                    return True
+            except OSError:
+                if path == session_dir:
+                    return True
+    return False
+
+
 @pytest.mark.asyncio
 async def test_serve_watch_apply_runs_off_observer_timer(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -858,10 +879,16 @@ async def test_serve_watch_apply_runs_off_observer_timer(
     task = asyncio.create_task(
         daemon.serve_control_forever(server, write_pid=False, warm_interval=3600.0)
     )
+    client: client_mod.ControlClient | None = None
     try:
         await wait_until(sock.exists, description="control socket accepts")
         client = client_mod.ControlClient(sock, client_name="watch-apply", timeout=15)
         await client.initialize()
+        await wait_until(
+            lambda: _session_dir_subscribed(server, session_dir),
+            timeout=8.0,
+            description="session directory subscribed",
+        )
         (session_dir / "updates.jsonl").write_text("{}\n{}\n", encoding="utf-8")
         await wait_until(
             lambda: bool(apply_hits),
@@ -874,9 +901,11 @@ async def test_serve_watch_apply_runs_off_observer_timer(
         assert listed["matched"] >= 1
         assert elapsed < 0.2
     finally:
+        if client is not None:
+            await client.close()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await task
+            await asyncio.wait_for(task, timeout=5.0)
     assert apply_hits
     stack = str(apply_hits[0]["stack"])
     assert "TraceTreeWatch._fire" not in stack
@@ -916,3 +945,156 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     assert by_path[traces.resolve()] is False
     assert store_dir.resolve() in by_path
     assert by_path[store_dir.resolve()] is True
+
+
+def _write_row_format_2_snapshot(root: Path, rows: list[dict[str, object]]) -> Path:
+    dest = default_catalog_snapshot(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(root),
+                "stamps": [],
+                "sessions": rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dest
+
+
+def _block_catalog_scan(
+    monkeypatch: pytest.MonkeyPatch, release: threading.Event
+) -> threading.Event:
+    catalog_mod = import_module("anqa.session.catalog")
+    started = threading.Event()
+    real = catalog_mod.list_session_catalog
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("catalog scan still blocked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    return started
+
+
+@pytest.mark.asyncio
+async def test_catalog_warm_seeds_snapshot_rows_while_rebuild_blocked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """get(force=True) / warm must serve on-disk snapshot rows, not complete rows=0."""
+    import logging
+
+    daemon = import_module("anqa.control.daemon")
+    from anqa.session.catalog import SessionCatalogCache
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "Daemon session",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+
+    release = threading.Event()
+    started = _block_catalog_scan(monkeypatch, release)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    with caplog.at_level(logging.INFO, logger="anqa.control.daemon"):
+        await daemon._catalog_warm_once(cache)
+    assert started.wait(timeout=2)
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("warm complete rows=0" in msg for msg in messages)
+    assert any("warm incomplete rows=1" in msg for msg in messages)
+    with cache._lock:
+        seeded = list(cache._rows or [])
+        building = bool(cache._building)
+    assert building is True
+    assert {str(row.get("sessionId")) for row in seeded} == {"snap-sess"}
+    listed = cache.list_for_rpc(limit=50)
+    assert listed["total"] == 1
+    assert listed["building"] is True
+    assert listed["incomplete"] is True
+    assert {str(row.get("sessionId")) for row in listed["sessions"]} == {"snap-sess"}
+    release.set()
+
+
+@pytest.mark.asyncio
+async def test_catalog_warm_logs_incomplete_without_joining_rebuild(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Warm must log snapshot rows immediately; it must not join get() 120s."""
+    import logging
+    import time
+
+    daemon = import_module("anqa.control.daemon")
+    from anqa.session.catalog import SessionCatalogCache
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "Daemon session",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+    release = threading.Event()
+    started = _block_catalog_scan(monkeypatch, release)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    t0 = time.perf_counter()
+    with caplog.at_level(logging.INFO, logger="anqa.control.daemon"):
+        await daemon._catalog_warm_once(cache)
+    elapsed = time.perf_counter() - t0
+    assert elapsed < 1.0
+    assert started.wait(timeout=2)
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("warm complete rows=0" in msg for msg in messages)
+    assert any("warm incomplete rows=1" in msg for msg in messages)
+    with cache._lock:
+        assert cache._building is True
+        assert {str(row.get("sessionId")) for row in (cache._rows or [])} == {"snap-sess"}
+    release.set()
+
+
+@pytest.mark.asyncio
+async def test_catalog_warm_does_not_log_complete_zero_while_rebuild_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """An empty timeout must not log warm complete while the rebuild is still running."""
+    import logging
+
+    daemon = import_module("anqa.control.daemon")
+    from anqa.session.catalog import SessionCatalogCache
+
+    traces = tmp_path / "empty-store"
+    traces.mkdir()
+    release = threading.Event()
+    started = _block_catalog_scan(monkeypatch, release)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    with caplog.at_level(logging.INFO, logger="anqa.control.daemon"):
+        await daemon._catalog_warm_once(cache)
+    assert started.wait(timeout=2)
+    messages = [record.getMessage() for record in caplog.records]
+    assert not any("warm complete rows=0" in msg for msg in messages)
+    assert any("warm incomplete rows=0" in msg for msg in messages)
+    with cache._lock:
+        assert cache._building is True
+    release.set()

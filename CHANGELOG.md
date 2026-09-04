@@ -42,6 +42,11 @@ Cursor (`cursor`) are registered.
 
 - Every shipped adapter store is listed; `harness:<id>` filters.
   `[catalog] ignore` drops a store; `[catalog.roots]` overrides a path.
+  `session/list` serves the last on-disk catalog snapshot immediately
+  while a rebuild runs. The owner keeps a plane watch when path collect
+  on a large store takes longer than two seconds. Watch targets are
+  membership dirs plus listed parent sessions, not every subagent
+  sibling.
 - Subagent runs stay off the top list; open them from the parent
   (Summary or Timeline Subagents). Esc returns there.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,

@@ -92,17 +92,14 @@ class TraceTreeWatch:
             host_root=self._host_root,
             list_sessions=not self._membership_only,
         )
-        return watch_target_paths(
-            [self._root],
-            sessions,
-            expand_children=not self._membership_only,
-        )
+        return watch_target_paths([self._root], sessions)
 
     def start(self) -> bool:
         """Start watching. True when the watch thread is up.
 
-        Ready is set after path collect, before ``watchfiles`` arms, so a
-        large tree cannot make ``start()`` return false.
+        Ready is set when the watch thread is running. Path collect
+        continues in that thread, so a large tree cannot make ``start()``
+        return false or abandon the watch.
         """
         if not self._root.is_dir() and self._session_dir is None:
             return False
@@ -114,22 +111,20 @@ class TraceTreeWatch:
         return self._ready.wait(2.0)
 
     def _run(self) -> None:
+        self._ready.set()
         try:
             from watchfiles import watch
         except ImportError:
             logger.warning("watchfiles not installed; live FS watch disabled")
-            self._ready.set()
             return
         debounce_ms = int(self._debounce_s * 1000)
         while not self._stop.is_set():
             paths = self._collect_paths()
             if not paths:
-                self._ready.set()
                 if self._stop.wait(0.25):
                     return
                 continue
             self._paths = paths
-            self._ready.set()
             try:
                 for changes in watch(
                     *paths,
