@@ -33,7 +33,7 @@ from .query import apply_catalog_presence_row, catalog_presence, catalog_presenc
 from .sources import (
     SessionOrigin,
     SessionScanRoot,
-    collect_session_dirs,
+    find_named_session_dir,
     session_run_dir,
     session_scan_roots,
 )
@@ -675,6 +675,10 @@ class SessionCatalogCache:
                 self._building = False
             self._build_done.set()
 
+    def start_rebuild(self, *, force: bool = False) -> None:
+        """Kick a background catalog rebuild. Does not wait for rows."""
+        self._kick_rebuild(force=force)
+
     def get(self, *, force: bool = False) -> list[JsonObject]:
         """Return catalog rows, rebuilding when stale, forced, or roots changed.
 
@@ -1126,6 +1130,51 @@ def _adapter_host_catalog_rows(
     return rows
 
 
+def resolve_session_locator(
+    reference: str,
+    *,
+    traces_path: Path | None = None,
+    include_host: bool | None = None,
+    host_root: Path | None = None,
+) -> Path | None:
+    """Resolve a session id or path without a catalog or host-store walk.
+
+    Used by notes RPC and other callers that must not wait on
+    :func:`list_session_catalog` or :func:`collect_session_dirs`.
+    Named lookup walks :func:`catalog_scan_roots` (one scandir per root).
+    A ``harness:id`` miss does not call ``adapter.ref_for_id``.
+
+    :param reference: Absolute/relative path, directory name, or ``harness:id``.
+    :param traces_path: Optional store to search by name (CLI ``-P``).
+    :param include_host: Host inclusion for named lookup on adapter stores.
+    :param host_root: Host root override for that scan.
+    :returns: Existing locator, or None when not found on this cheap path.
+    """
+    ref = (reference or "").strip()
+    if not ref:
+        return None
+    candidate = Path(ref).expanduser()
+    if candidate.is_dir() or candidate.is_file():
+        try:
+            return candidate.resolve()
+        except OSError:
+            return candidate
+    sid = ref
+    parsed = parse_session_ref_string(ref)
+    if parsed is not None:
+        sid = parsed[1]
+    roots = catalog_scan_roots(
+        traces_path=traces_path,
+        include_host=include_host,
+        host_root=host_root,
+    )
+    for root in roots:
+        found = find_named_session_dir(root.path, sid)
+        if found is not None:
+            return found
+    return None
+
+
 def resolve_session_reference(
     reference: str,
     *,
@@ -1134,6 +1183,10 @@ def resolve_session_reference(
     host_root: Path | None = None,
 ) -> Path | None:
     """Resolve a path or catalog session id to an existing session directory.
+
+    Name lookup only: a directory path, then :func:`find_named_session_dir`
+    on each :func:`catalog_scan_roots` entry. Does not list every sibling
+    session (that walk loads list-meta on a host store).
 
     :param reference: Absolute/relative path, or a session directory name / id.
     :param traces_path: Optional store path override.
@@ -1150,27 +1203,17 @@ def resolve_session_reference(
             return candidate.resolve()
         except OSError:
             return candidate
+    parsed = parse_session_ref_string(ref)
+    needle = parsed[1] if parsed is not None else ref
     roots = catalog_scan_roots(
         traces_path=traces_path,
         include_host=include_host,
         host_root=host_root,
     )
     for root in roots:
-        direct = root.path / ref
-        if direct.is_dir():
-            try:
-                return direct.resolve()
-            except OSError:
-                return direct
-    # Directory name only. List-meta for every sibling is a multi-second tax on
-    # each session/overview and session/timeline call. Id≠dirname uses the
-    # warm catalog on the control owner (SessionCatalogCache.resolve).
-    for session_dir in collect_session_dirs(roots):
-        if session_dir.name == ref:
-            try:
-                return session_dir.resolve()
-            except OSError:
-                return session_dir
+        named = find_named_session_dir(root.path, needle)
+        if named is not None:
+            return named
     return None
 
 
@@ -1180,6 +1223,7 @@ __all__ = [
     "catalog_scan_roots",
     "effective_include_host",
     "list_session_catalog",
+    "resolve_session_locator",
     "resolve_session_reference",
     "catalog_row_for_ref",
     "public_catalog_row",

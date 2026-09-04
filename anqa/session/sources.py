@@ -224,6 +224,46 @@ def is_host_skip_dir_name(name: str) -> bool:
     return False
 
 
+def find_named_session_dir(root: Path, session_id: str) -> Path | None:
+    """Locate *session_id* under *root* without listing every session.
+
+    Checks *root* itself, a direct child, and one encoded-cwd bucket
+    (``<root>/%2F…/<id>``). Does not walk sibling stores or load list meta.
+    """
+    sid = (session_id or "").strip()
+    base = Path(root).expanduser()
+    if not sid or not base.is_dir():
+        return None
+    if base.name == sid and _dir_is_session(base):
+        try:
+            return base.resolve()
+        except OSError:
+            return base
+    try:
+        with os.scandir(base) as it:
+            tops = list(it)
+    except OSError:
+        return None
+    for ent in tops:
+        if not ent.is_dir(follow_symlinks=False) or is_host_skip_dir_name(ent.name):
+            continue
+        child = Path(ent.path)
+        if child.name == sid and _dir_is_session(child):
+            try:
+                return child.resolve()
+            except OSError:
+                return child
+        if not is_encoded_cwd_name(ent.name):
+            continue
+        cand = child / sid
+        if _dir_is_session(cand):
+            try:
+                return cand.resolve()
+            except OSError:
+                return cand
+    return None
+
+
 def _dir_is_session(path: Path) -> bool:
     """True when *path* itself is a session directory (no recursion)."""
     names: set[str] = set()
@@ -336,6 +376,7 @@ __all__ = [
     "SessionScanRoot",
     "collect_host_session_dirs",
     "collect_session_dirs",
+    "find_named_session_dir",
     "default_catalog_root",
     "list_host_session_dirs",
     "is_adapter_store_root",

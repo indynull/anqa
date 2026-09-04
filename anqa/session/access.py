@@ -172,7 +172,10 @@ class LocalSessionAccess:
         Directory locators are the session tree. File or database locators
         use the anqa overlay directory.
         """
-        found = resolve_session_ref(reference, path_resolve=self._resolve)
+        path = self._resolve(reference)
+        if path is not None and path.is_dir():
+            return path
+        found = resolve_session_ref(reference, path_resolve=self._resolve, walk_adapters=False)
         if found is None:
             raise FileNotFoundError(f"session not found: {reference}")
         if found.locator.is_dir():

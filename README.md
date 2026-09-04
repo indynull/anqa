@@ -315,9 +315,14 @@ signals, and list status from the updates tail). It does not start anqad.
 
 Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
 free (`--no-anqad` attaches only). Quitting a client leaves anqad
-running. Debug every method: `ANQA_SERVE_LOG_LEVEL=DEBUG anqad`
-(foreground) or `ANQA_SERVE_LOG_LEVEL=DEBUG anqad restart`. Methods,
-framing, and notifications: [docs/control.md](docs/control.md).
+running. `notes/list` and `notes/upsert` do not wait on catalog
+discovery; `diagnostics` reports the active RPC and a bounded failure.
+Cold `session/overview` and `session/timeline` resolve a session by
+name on catalog scan roots (no sibling listing).
+`anqad -P STORE` scans that store only. Debug every method:
+`ANQA_SERVE_LOG_LEVEL=DEBUG anqad` (foreground) or
+`ANQA_SERVE_LOG_LEVEL=DEBUG anqad restart`. Methods, framing, and
+notifications: [docs/control.md](docs/control.md).
 
 ## Emacs
 
@@ -360,5 +365,5 @@ just ci              # lint + schema-check + hud-check + examples-check + test
 just bump 0.1.1      # version strings + CHANGELOG.md
 ```
 
-Also: `anqa doctor` (config home, catalog, HUD seat), `anqa keys`,
+Also: `anqa doctor` (config home, catalog, control owner, HUD seat), `anqa keys`,
 `anqa import PATH`.

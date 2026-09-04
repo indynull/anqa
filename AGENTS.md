@@ -32,7 +32,7 @@ just ci             # lint + schema-check + hud-check + examples-check + test (l
 | ``anqa`` / ``anqa tui`` / ``anqa PATH`` | Interactive TUI (control client) |
 | ``anqad`` | Control process (foreground; ``-d`` detach); ``stop`` / ``restart`` / ``status`` |
 | ``anqa desktop`` | Desktop palette (iced; control client) |
-| ``anqa doctor`` | Host checks (config home, catalog, HUD seat) — no TUI |
+| ``anqa doctor`` | Host checks (config home, catalog, control owner, HUD seat) — no TUI |
 | ``anqa editor …`` | Packaged Emacs / Neovim client paths |
 
 Prefer **`uv run …`** so tools match the lockfile.

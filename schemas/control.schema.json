@@ -425,6 +425,7 @@
         "session/open",
         "session/import",
         "session/render",
+        "diagnostics",
         "notes/list",
         "notes/upsert",
         "notes/delete"
@@ -837,6 +838,41 @@
               "type": "object",
               "additionalProperties": true,
               "properties": {}
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "diagnostics": {
+          "description": "Active RPC, recent bounded failures, and whether the catalog is building",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "diagnostics params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {}
+            },
+            "result": {
+              "title": "diagnostics result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "active": {
+                  "description": "In-flight methods (`method`, `elapsedMs`, `session`).",
+                  "type": "array"
+                },
+                "failures": {
+                  "description": "Recent bounded RPC failures (`method`, `code`, `message`, `elapsedMs`).",
+                  "type": "array"
+                },
+                "catalogBuilding": {
+                  "description": "True while a catalog store scan is in flight.",
+                  "type": "boolean"
+                }
+              }
             }
           },
           "required": [

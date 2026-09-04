@@ -113,9 +113,12 @@ def run_hud(
     sock = Path(socket_path or default_socket_path()).expanduser()
     tr = resolve_catalog_root(catalog_root)
     if auto_anqad:
+        from ..control.daemon import include_host_for_explicit_store
+
         result = ensure_control_daemon(
             socket_path=sock,
             traces_path=tr,
+            include_host=include_host_for_explicit_store(catalog_root),
         )
         # Race: spawn lost the bind to a live TUI/serve — still attach if OK.
         if not result.ok and control_socket_accepts(sock):

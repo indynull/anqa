@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import time
+from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -106,11 +107,23 @@ _TIMESTAMP_RE = re.compile(r"^[0-9][0-9T:+.Z-]{0,63}$")
 # Concurrent disk-heavy RPCs (parse/catalog) share this bound so multi-client
 # opens cannot stampede the owner beyond single-flight per session.
 HEAVY_IO_CONCURRENCY = 4
+# Notes I/O is a TOML read/write. Bound so a catalog walk cannot starve it.
+NOTES_RPC_TIMEOUT = 2.0
+_RPC_FAILURE_KEEP = 8
 
 type SessionResolver = Callable[[str], Path | None]
 type SessionLister = Callable[[], list[JsonObject]]
 type OpenSession = Callable[[Path, int | None], Awaitable[bool]]
 type NotesChanged = Callable[[Path], Awaitable[None]]
+
+
+@dataclass(frozen=True)
+class _RpcActive:
+    """One in-flight owner method (diagnostics)."""
+
+    method: str
+    started: float
+    session: str = ""
 
 
 @dataclass(frozen=True)
@@ -325,6 +338,9 @@ class ControlServer:
         # stampede multi‑MB parses (single-flight still joins per session).
         self._heavy_sem = asyncio.Semaphore(HEAVY_IO_CONCURRENCY)
         self._search_warm_inflight: set[Path] = set()
+        self._rpc_seq = 0
+        self._rpc_active: dict[int, _RpcActive] = {}
+        self._rpc_failures: deque[JsonObject] = deque(maxlen=_RPC_FAILURE_KEEP)
 
     async def start(self) -> None:
         """Bind the configured socket and begin accepting connections."""
@@ -593,6 +609,30 @@ class ControlServer:
             param_summary,
         )
         t0 = time.perf_counter()
+        token = self._track_rpc(method, params)
+        try:
+            await self._run_rpc_line(
+                writer,
+                request_id,
+                method,
+                params,
+                after_send,
+                param_summary,
+                t0,
+            )
+        finally:
+            self._untrack_rpc(token)
+
+    async def _run_rpc_line(
+        self,
+        writer: asyncio.StreamWriter,
+        request_id: JsonValue,
+        method: str,
+        params: JsonObject,
+        after_send: list[tuple[str, JsonObject]],
+        param_summary: str,
+        t0: float,
+    ) -> None:
         try:
             result = await self._dispatch(method, params, after_send)
         except NotesConflict as exc:
@@ -614,6 +654,7 @@ class ControlServer:
             return
         except ControlError as exc:
             ms = (time.perf_counter() - t0) * 1000
+            self._record_rpc_failure(method, exc.code, exc.message, ms)
             logger.info(
                 "control rpc → id=%s method=%s status=%s %.1fms %s err=%s",
                 request_id,
@@ -683,6 +724,79 @@ class ControlServer:
         if session is None or not session.is_dir():
             raise ControlError(404, "session not found", {"session": reference})
         return session
+
+    def _track_rpc(self, method: str, params: JsonObject) -> int:
+        self._rpc_seq += 1
+        token = self._rpc_seq
+        self._rpc_active[token] = _RpcActive(
+            method=method,
+            started=time.perf_counter(),
+            session=json_as_str(params.get("session")).strip(),
+        )
+        return token
+
+    def _untrack_rpc(self, token: int) -> None:
+        self._rpc_active.pop(token, None)
+
+    def _record_rpc_failure(self, method: str, code: int, message: str, elapsed_ms: float) -> None:
+        self._rpc_failures.append(
+            {
+                "method": method,
+                "code": int(code),
+                "message": message,
+                "elapsedMs": round(float(elapsed_ms), 1),
+            }
+        )
+
+    def rpc_diagnostics(self) -> JsonObject:
+        """Active RPCs, recent bounded failures, and catalog-build flag."""
+        now = time.perf_counter()
+        active: list[JsonValue] = []
+        for item in self._rpc_active.values():
+            if item.method == "diagnostics":
+                continue
+            row: JsonObject = {
+                "method": item.method,
+                "elapsedMs": round((now - item.started) * 1000, 1),
+            }
+            if item.session:
+                row["session"] = item.session
+            active.append(row)
+        cache = getattr(self, "_catalog_cache", None)
+        building = bool(getattr(cache, "_building", False))
+        failures: list[JsonValue] = list(self._rpc_failures)
+        return {
+            "active": active,
+            "failures": failures,
+            "catalogBuilding": building,
+        }
+
+    async def _notes_call(
+        self,
+        ref: str,
+        fn: Callable[..., JsonObject],
+        *args: object,
+        **kwargs: object,
+    ) -> JsonObject:
+        """Run a notes access method without the catalog heavy semaphore."""
+
+        def _run() -> JsonObject:
+            try:
+                return fn(*args, **kwargs)
+            except FileNotFoundError as exc:
+                raise ControlError(404, "session not found", {"session": ref}) from exc
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(_run),
+                timeout=NOTES_RPC_TIMEOUT,
+            )
+        except TimeoutError as exc:
+            raise ControlError(
+                -32603,
+                "notes timed out",
+                {"session": ref, "timeoutSeconds": NOTES_RPC_TIMEOUT},
+            ) from exc
 
     def _mark_session_interest(self, session: Path) -> None:
         apply = getattr(self, "_catalog_apply", None)
@@ -898,12 +1012,18 @@ class ControlServer:
         after_send.append((NOTIFY_SESSION_CHANGED, {"sessionId": session_id, "listChanged": True}))
         return result
 
+    @_rpc("diagnostics")
+    async def _rpc_diagnostics(
+        self, _params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        return self.rpc_diagnostics()
+
     @_rpc("notes/list")
     async def _rpc_notes_list(
         self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
     ) -> JsonValue:
         ref = self._session_ref(params)
-        return await self._access_call(ref, self._access.notes_list, ref)
+        return await self._notes_call(ref, self._access.notes_list, ref)
 
     @_rpc("notes/upsert")
     async def _rpc_notes_upsert(
@@ -916,7 +1036,7 @@ class ControlServer:
         session = self._session(params)
         note = _note_from_params(as_json_object(note_raw))
         rev = json_as_str(params.get("expectedRevision"))
-        result = await self._access_call(
+        result = await self._notes_call(
             ref,
             self._access.notes_upsert,
             ref,
@@ -946,7 +1066,7 @@ class ControlServer:
         ref = self._session_ref(params)
         session = self._session(params)
         rev = json_as_str(params.get("expectedRevision"))
-        result = await self._access_call(
+        result = await self._notes_call(
             ref,
             self._access.notes_delete,
             ref,

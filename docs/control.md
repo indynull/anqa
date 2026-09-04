@@ -84,6 +84,7 @@ The owner accepts either and replies in the same frame the client used.
 | `session/open` | Resolve a session and notify `session/selected` |
 | `session/import` | Open a harness archive or anqa export and add it to the catalog |
 | `session/render` | Project a document (`format`: below) |
+| `diagnostics` | Active RPC, recent bounded failures, and whether the catalog is building |
 | `notes/list` | Notes snapshot (`revision`, schema, notes) |
 | `notes/upsert` | Write a note (`expectedRevision`) |
 | `notes/delete` | Delete a note (`expectedRevision`) |
@@ -148,6 +149,15 @@ Every note must include a non-empty `source` (who wrote it).
 `fields` need not match the configured form schema; extra keys
 are stored as sent. The in-app form uses `notes_schema.toml`
 and stamps its own source.
+
+### `diagnostics`
+
+`notes/list` and `notes/upsert` do not wait on catalog discovery.
+A notes call that exceeds the owner bound is recorded here and
+returns an error instead of hanging the client. Cold
+`session/overview` and `session/timeline` resolve a session by
+directory name on catalog scan roots; they do not list every
+sibling session.
 
 ## Notifications
 

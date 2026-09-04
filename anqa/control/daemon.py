@@ -282,12 +282,21 @@ def build_domain_control_server(
 
 
 async def _catalog_warm_once(cache: SessionCatalogCache) -> None:
-    """Load the catalog snapshot once at serve start."""
+    """Kick a catalog rebuild at serve start without joining the scan."""
     try:
-        rows = await asyncio.to_thread(lambda: cache.get(force=True))
-        logger.info("control catalog warm complete rows=%s", len(rows))
+        cache.start_rebuild(force=True)
+        logger.info("control catalog warm started")
     except Exception:
         logger.debug("control catalog warm failed", exc_info=True)
+
+
+def include_host_for_explicit_store(path: Path | None) -> bool | None:
+    """Host inclusion for an operator ``-P`` store.
+
+    An explicit store is that tree only. ``None`` keeps the default
+    (every enabled adapter store).
+    """
+    return False if path is not None else None
 
 
 def control_watch_roots(cache: SessionCatalogCache) -> list[Path]:
@@ -1252,6 +1261,20 @@ def owner_protocol_current(socket_path: Path, *, timeout: float = 2.0) -> bool:
     return owner_protocol_probe(socket_path, timeout=timeout) is True
 
 
+def owner_diagnostics_probe(socket_path: Path, *, timeout: float = 1.0) -> JsonObject | None:
+    """Return the live owner's ``diagnostics`` payload, or None on failure."""
+
+    async def _probe() -> JsonObject:
+        client = ControlClient(socket_path, client_name="anqa-diagnostics", timeout=timeout)
+        await client.initialize()
+        return await client.diagnostics()
+
+    try:
+        return asyncio.run(_probe())
+    except Exception:
+        return None
+
+
 def ensure_control_daemon(
     *,
     socket_path: Path | None = None,
@@ -1306,6 +1329,8 @@ __all__ = [
     "control_pid_path",
     "control_socket_accepts",
     "ensure_control_daemon",
+    "include_host_for_explicit_store",
+    "owner_diagnostics_probe",
     "owner_protocol_current",
     "owner_protocol_probe",
     "lock_holder_pids",

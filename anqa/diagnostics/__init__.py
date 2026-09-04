@@ -1,4 +1,4 @@
-"""Host environment checks (config home, catalog, HUD seat) for self-test."""
+"""Host environment checks (config home, catalog, control owner, HUD seat)."""
 
 from __future__ import annotations
 

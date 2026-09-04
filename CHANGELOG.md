@@ -126,6 +126,12 @@ Cursor (`cursor`) are registered.
   version. Same major keeps a live owner; a major bump is the only
   incompatible handshake change.
 - Emacs opens sessions as Org; Neovim opens them as Markdown.
+- `notes/list` and `notes/upsert` stay responsive while a catalog store
+  is building. Session resolve is a name lookup on catalog scan roots
+  (no `collect_session_dirs`, no adapter `ref_for_id`). Cold
+  `session/overview` and `session/timeline` resolve a session by name
+  on those roots. `diagnostics` reports the active RPC and a bounded
+  notes failure. `anqad -P STORE` scans that store only.
 
 ### Examples
 
@@ -137,4 +143,4 @@ Cursor (`cursor`) are registered.
   `just ci`).
 - `just bump 0.1.1` sets every product version declaration and
   promotes this file.
-- `anqa doctor` checks config home, catalog, and HUD seat.
+- `anqa doctor` checks config home, catalog, control owner, and HUD seat.

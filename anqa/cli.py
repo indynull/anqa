@@ -117,9 +117,12 @@ def launch_tui(
         else default_socket_path()
     )
     if socket_path is not None and ensure_anqad:
+        from .control.daemon import include_host_for_explicit_store
+
         result = ensure_control_daemon(
             socket_path=socket_path,
             traces_path=tr,
+            include_host=include_host_for_explicit_store(path),
         )
         if not result.ok:
             typer.echo(
@@ -573,7 +576,7 @@ def cmd_doctor(
         typer.Option("--json", help="Emit JSON instead of text lines."),
     ] = False,
 ) -> None:
-    """Host checks: config home, catalog, and HUD seat (no TUI)."""
+    """Host checks: config home, catalog, control owner, and HUD seat (no TUI)."""
     from .diagnostics import run_self_test
     from .paths import resolve_catalog_root
 

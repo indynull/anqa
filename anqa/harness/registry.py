@@ -179,6 +179,7 @@ def resolve_session_ref(
     reference: str,
     *,
     path_resolve: PathResolver | None = None,
+    walk_adapters: bool = True,
 ) -> SessionRef | None:
     """Map a control ``session`` argument to a :class:`SessionRef`.
 
@@ -187,6 +188,9 @@ def resolve_session_ref(
 
     :param reference: Session id, directory, or ``harness:id``.
     :param path_resolve: Optional directory resolver (catalog cache).
+    :param walk_adapters: When false, skip the all-adapter ``ref_for_id``
+        scan. Notes RPC uses this so a cold catalog cannot stall on host
+        stores.
     :returns: Locator, or None when nothing matches.
     """
     raw = (reference or "").strip()
@@ -202,7 +206,9 @@ def resolve_session_ref(
             return None
         if harness and session_id:
             return SessionRef(harness=harness, session_id=session_id, locator=path)
-        return ref_from_path(path)
+        if walk_adapters:
+            return ref_from_path(path)
+        return SessionRef(harness="", session_id=path.name, locator=path)
 
     if parsed is not None:
         hid, sid = parsed
@@ -214,6 +220,8 @@ def resolve_session_ref(
         )
         if cached is not None:
             return cached
+        if not walk_adapters:
+            return None
         return found.ref_for_id(sid)
     cached = _from_cache(raw)
     if cached is not None:
@@ -221,6 +229,8 @@ def resolve_session_ref(
     candidate = Path(raw).expanduser()
     if candidate.is_dir() or candidate.is_file():
         return ref_from_path(candidate)
+    if not walk_adapters:
+        return None
     for item in adapters():
         hit = item.ref_for_id(raw)
         if hit is not None:

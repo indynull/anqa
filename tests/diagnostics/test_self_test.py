@@ -11,6 +11,7 @@ from anqa.diagnostics.self_test import CheckResult, SelfTestReport, run_self_tes
 _HOST_CHECK_IDS = {
     "app_home",
     "catalog",
+    "control_owner",
     "session_display",
     "sway_socket",
     "hud_summon",
@@ -18,8 +19,38 @@ _HOST_CHECK_IDS = {
 }
 
 
+def test_control_owner_reports_active_rpc_and_failure(monkeypatch) -> None:
+    from anqa.diagnostics import self_test as st
+
+    monkeypatch.setattr(
+        "anqa.control.daemon.control_socket_accepts",
+        lambda *_a, **_k: True,
+    )
+    monkeypatch.setattr(
+        "anqa.control.daemon.owner_diagnostics_probe",
+        lambda *_a, **_k: {
+            "active": [{"method": "notes/list", "elapsedMs": 12.0, "session": "s1"}],
+            "failures": [
+                {
+                    "method": "notes/list",
+                    "code": -32603,
+                    "message": "notes timed out",
+                    "elapsedMs": 2000.0,
+                }
+            ],
+            "catalogBuilding": True,
+        },
+    )
+    result = st._check_control_owner()
+    assert result.id == "control_owner"
+    assert result.ok is True
+    assert "notes/list" in result.detail
+    assert "timed out" in result.detail
+    assert "catalog building" in result.detail
+
+
 def test_self_test_probes_config_catalog_and_seat(tmp_path: Path):
-    """Doctor is config home, catalog, and HUD seat."""
+    """Doctor is config home, catalog, control owner, and HUD seat."""
     catalog = tmp_path / "sessions"
     catalog.mkdir()
     report = run_self_test(catalog_root=catalog)

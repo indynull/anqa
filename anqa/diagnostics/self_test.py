@@ -1,7 +1,8 @@
 """Host dependency checks for the review product.
 
-Probes config home, the session catalog, leftover prefs, and the HUD
-seat. Used by ``anqa doctor`` and the in-app self-test modal.
+Probes config home, the session catalog, leftover prefs, the live
+control owner, and the HUD seat. Used by ``anqa doctor`` and the
+in-app self-test modal.
 """
 
 from __future__ import annotations
@@ -220,11 +221,62 @@ def _check_leftover_json_config() -> CheckResult:
     )
 
 
+def _check_control_owner() -> CheckResult:
+    """Advisory: live owner active RPC and last bounded failure."""
+    from ..control.daemon import control_socket_accepts, owner_diagnostics_probe
+    from ..control.server import default_socket_path
+
+    sock = default_socket_path()
+    if not control_socket_accepts(sock, timeout=0.2):
+        return CheckResult(
+            id="control_owner",
+            name="Control owner",
+            ok=True,
+            required=False,
+            detail=f"no live owner ({sock})",
+        )
+    payload = owner_diagnostics_probe(sock)
+    if payload is None:
+        return CheckResult(
+            id="control_owner",
+            name="Control owner",
+            ok=False,
+            required=False,
+            detail=f"live at {sock} but diagnostics failed",
+        )
+    active = payload.get("active")
+    failures = payload.get("failures")
+    parts: list[str] = []
+    if isinstance(active, list) and active:
+        methods = [
+            str(row.get("method")) for row in active if isinstance(row, dict) and row.get("method")
+        ]
+        parts.append("active " + ", ".join(methods) if methods else "active")
+    else:
+        parts.append("idle")
+    if payload.get("catalogBuilding"):
+        parts.append("catalog building")
+    if isinstance(failures, list) and failures:
+        last = failures[-1]
+        if isinstance(last, dict):
+            method = str(last.get("method") or "rpc")
+            message = str(last.get("message") or "failed")
+            parts.append(f"last failure {method}: {message}")
+    return CheckResult(
+        id="control_owner",
+        name="Control owner",
+        ok=True,
+        required=False,
+        detail="; ".join(parts),
+    )
+
+
 def run_self_test(*, catalog_root: Path | None = None) -> SelfTestReport:
     """Run all host checks. Safe to call from UI worker threads."""
     checks = [
         _check_app_home(),
         _check_catalog_store(catalog_root),
+        _check_control_owner(),
         _check_session_display(),
         _check_sway_socket(),
         _check_hud_summon_socket(),
