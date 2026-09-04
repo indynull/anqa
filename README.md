@@ -325,8 +325,25 @@ framing, and notifications: [docs/control.md](docs/control.md).
 (load (string-trim (shell-command-to-string "anqa editor emacs-path")))
 ```
 
-Sessions open as Org. Same [control](#control) socket as the
-[terminal app](#terminal-app) and [HUD](#desktop-hud).
+Sessions open as Org on the same [control](#control) socket as the
+[terminal app](#terminal-app) and [HUD](#desktop-hud). A missing socket
+starts `anqad -d` (not a terminal app). `M-x anqa-list-sessions` and
+`M-x anqa-find-session` list the catalog. Prefix argument prompts for a
+catalog query (`harness:grok`, `is:running`, `in:`). Find-session sends
+the minibuffer text as that query. The list buffer reloads when the
+catalog changes.
+
+Open is turns and notes. `C-c C-e` loads the prompt at point.
+
+| Key | Where | Action |
+|-----|-------|--------|
+| `C-c C-c` | session | Save the note at point |
+| `C-x C-s` | session | Save every note |
+| `C-c C-n` | session | New note on this prompt |
+| `C-c C-k` | session | Delete the note at point |
+| `C-c C-e` | session | Load this prompt's transcript |
+| `C-c C-o` | session | Open a child, or select the prompt in the terminal app |
+| `C-c C-r` / `gr` | session | Reload (Evil/Doom: `gr`) |
 
 ## Neovim (0.9+)
 

@@ -18,14 +18,18 @@
 (require 'jsonrpc)
 (require 'org)
 (require 'subr-x)
-(require 'term)
+
 
 (defgroup anqa nil
   "Live Anqa session buffers."
   :group 'tools)
 
 (defcustom anqa-executable "anqa"
-  "Executable used by `anqa-start'."
+  "Unused TUI name kept for older configs. `anqa-start' runs `anqa-daemon-executable'."
+  :type 'string)
+
+(defcustom anqa-daemon-executable "anqad"
+  "Control owner started when the socket is missing (`anqad -d')."
   :type 'string)
 
 (defcustom anqa-control-socket nil
@@ -85,11 +89,15 @@ REASON is a short human label (e.g. \"notes changed\")."
 
 (defun anqa--notification (_connection method params)
   "Handle a server notification named METHOD with PARAMS."
+  (when (equal (anqa--method-name method) "session/changed")
+    (anqa--refresh-sessions-buffer))
   (let ((session (plist-get params :sessionId)))
     (dolist (buffer (buffer-list))
       (with-current-buffer buffer
         (when (and (derived-mode-p 'anqa-session-mode)
-                   (or (null session) (equal anqa-session-id session)))
+                   (or (null session)
+                       (string-empty-p (or session ""))
+                       (equal anqa-session-id session)))
           (pcase (anqa--method-name method)
             ("notes/changed"
              (let ((rev (plist-get params :revision)))
@@ -181,32 +189,27 @@ A connection whose peer died is dropped so the next command reconnects."
   anqa--connection)
 
 (defun anqa--wait-for-socket (process)
-  "Wait for the control socket owned by PROCESS."
+  "Wait for the control socket. PROCESS may exit after `anqad -d' detaches."
   (let ((deadline (+ (float-time) anqa-request-timeout)))
-    (while (and (process-live-p process)
-                (not (file-exists-p (anqa--socket-path)))
+    (while (and (not (file-exists-p (anqa--socket-path)))
                 (< (float-time) deadline))
-      (accept-process-output process 0.05))
+      (if (and process (process-live-p process))
+          (accept-process-output process 0.05)
+        (sit-for 0.05)))
     (unless (file-exists-p (anqa--socket-path))
       (user-error "Anqa did not create its control socket"))))
 
-(defun anqa-start (&optional session prompt-index)
-  "Start the TUI for SESSION and optionally select PROMPT-INDEX."
+(defun anqa-start (&optional _session _prompt-index)
+  "Detach-start `anqad' when the control socket is missing.
+SESSION and PROMPT-INDEX are ignored: the owner lists every catalog store.
+A live TUI is not required to read a session."
   (interactive)
   (let* ((socket (anqa--socket-path))
-         (args (append
-                (when session (list "--path" (expand-file-name session)))
-                (list "--control-socket" socket)
-                (when prompt-index
-                  (list "--prompt-index" (number-to-string prompt-index)))))
-         (buffer (apply #'make-term "anqa-live" anqa-executable nil args))
-         (process (get-buffer-process buffer)))
+         (args (list "-d" "-s" socket))
+         (buffer (get-buffer-create "*anqad*"))
+         (process (apply #'start-process "anqad" buffer anqa-daemon-executable args)))
     (setq anqa--terminal-buffer buffer)
     (set-process-query-on-exit-flag process nil)
-    (with-current-buffer buffer
-      (term-mode)
-      (term-char-mode))
-    (display-buffer buffer '(display-buffer-at-bottom (window-height . 14)))
     (anqa--wait-for-socket process)
     buffer))
 
@@ -248,8 +251,8 @@ A TUI taking a stale socket over needs a moment before it accepts clients."
           (anqa-connect)
         (error
          (anqa--drop-connection)
-         ;; A socket file outliving its TUI refuses connections; starting the
-         ;; TUI again takes the stale socket over.
+         ;; A socket file outliving its owner refuses connections; starting
+         ;; anqad again takes the stale socket over.
          (unless (and directory (anqa--connection-refused-p err))
            (signal (car err) (cdr err)))
          (anqa-start directory nil)
@@ -410,12 +413,18 @@ Leading and trailing blank lines are part of the value."
           :createdAt ,created-at
           :updatedAt ,updated-at)))))
 
-(defun anqa--render-session (session)
-  "Request the Org projection for SESSION."
-  (anqa--request
-   (anqa--connection-for-session session)
-   "session/render"
-   `(:session ,session)))
+(defun anqa--render-session (session &optional bodies prompt-index)
+  "Request the Org projection for SESSION.
+BODIES nil (the default) is turns and notes only. PROMPT-INDEX limits
+the document to one prompt (used to expand a turn)."
+  (let ((params (list :session session :format "org")))
+    (setq params (plist-put params :bodies (if bodies t :json-false)))
+    (when prompt-index
+      (setq params (plist-put params :promptIndex prompt-index)))
+    (anqa--request
+     (anqa--connection-for-session session)
+     "session/render"
+     params)))
 
 (defun anqa--do-refresh ()
   "Reload the projection without prompting (caller checks dirty state).
@@ -466,13 +475,15 @@ response, so their stale flags survive the reload."
 (defconst anqa--session-list-page 200
   "Page size when draining `session/list'.")
 
-(defun anqa--session-list-all (&optional query)
+(defun anqa--session-list-drain (&optional query)
   "Drain `session/list' pages for QUERY until `matched'.
 Pages keep the catalog's newest-activity-first order."
   (let ((sessions nil)
         (offset 0)
         (matched 0)
         (total 0)
+        (building nil)
+        (incomplete nil)
         (first-id "")
         (done nil))
     (while (not done)
@@ -480,7 +491,9 @@ Pages keep the catalog's newest-activity-first order."
              (batch (append (plist-get result :sessions) nil))
              (batch-first (or (plist-get (car batch) :sessionId) "")))
         (setq matched (or (plist-get result :matched) matched)
-              total (or (plist-get result :total) total))
+              total (or (plist-get result :total) total)
+              building (plist-get result :building)
+              incomplete (plist-get result :incomplete))
         (cond
          ((null batch)
           (setq done t))
@@ -496,7 +509,26 @@ Pages keep the catalog's newest-activity-first order."
           (when (or (< (length batch) anqa--session-list-page)
                     (and (> matched 0) (>= offset matched)))
             (setq done t))))))
-    (list :sessions sessions :matched matched :total total)))
+    (list :sessions sessions :matched matched :total total
+          :building building :incomplete incomplete)))
+
+(defconst anqa--session-list-retries 8
+  "Times to retry an empty building catalog.")
+
+(defun anqa--session-list-all (&optional query)
+  "Drain `session/list' for QUERY, retrying while the owner is still building."
+  (let ((tries 0)
+        (result nil))
+    (while (and (< tries anqa--session-list-retries)
+                (or (null result)
+                    (and (or (plist-get result :building)
+                             (plist-get result :incomplete))
+                         (zerop (or (plist-get result :matched) 0)))))
+      (when (> tries 0)
+        (sit-for 0.25))
+      (setq result (anqa--session-list-drain query)
+            tries (1+ tries)))
+    (or result (list :sessions nil :matched 0 :total 0))))
 
 (defun anqa--session-entry-path (entry)
   "Return a stable open reference for session ENTRY."
@@ -536,65 +568,81 @@ Pages keep the catalog's newest-activity-first order."
                                  session-id)))
                 "  ·  "))))
 
-(defun anqa-list-sessions (&optional query)
-  "List sessions from the running TUI catalog, optionally filtered by QUERY.
-With a prefix argument, prompt for QUERY. Results open a read-only buffer."
-  (interactive
-   (list (if current-prefix-arg
-             (read-string "Filter sessions: ")
-           "")))
-  (anqa-connect)
+(defvar-local anqa--sessions-query ""
+  "Catalog query last used to fill `*anqa-sessions*'.")
+
+(defconst anqa--sessions-buffer-name "*anqa-sessions*")
+
+(defun anqa--fill-sessions-buffer (query)
+  "Rewrite the current sessions buffer for QUERY."
   (let* ((result (anqa--session-list-all query))
          (sessions (append (plist-get result :sessions) nil))
          (total (or (plist-get result :total) 0))
          (matched (or (plist-get result :matched) (length sessions)))
-         (buffer (get-buffer-create "*anqa-sessions*")))
+         (building (or (plist-get result :building)
+                       (plist-get result :incomplete)))
+         (inhibit-read-only t))
+    (setq anqa--sessions-query (or query ""))
+    (erase-buffer)
+    (insert
+     (format "Anqa sessions  matched %s / total %s"
+             matched total)
+     (if building "  (building)" "")
+     (if (and query (not (string-empty-p query)))
+         (format "  filter: %s\n\n" query)
+       "\n\n"))
+    (if (null sessions)
+        (insert (if building "(catalog still building)\n" "(no sessions)\n"))
+      (dolist (entry sessions)
+        (let ((path (anqa--session-entry-path entry))
+              (line (anqa--session-entry-annotation entry)))
+          (insert-text-button
+           line
+           'action (lambda (_button)
+                     (anqa-open-session path))
+           'follow-link t
+           'anqa-session path
+           'help-echo path)
+          (insert "\n"))))
+    (goto-char (point-min))
+    (setq buffer-read-only t)))
+
+(defun anqa--refresh-sessions-buffer ()
+  "Reload `*anqa-sessions*' when it is live."
+  (let ((buffer (get-buffer anqa--sessions-buffer-name)))
+    (when (buffer-live-p buffer)
+      (with-current-buffer buffer
+        (anqa--fill-sessions-buffer anqa--sessions-query)))))
+
+(defun anqa-list-sessions (&optional query)
+  "List catalog sessions, optionally filtered by QUERY.
+QUERY is the catalog language (`harness:grok', `is:running', …).
+With a prefix argument, prompt for QUERY. Results open a read-only buffer
+that reloads on `session/changed'."
+  (interactive
+   (list (if current-prefix-arg
+             (read-string "Filter sessions (harness:grok): ")
+           "")))
+  (anqa-connect)
+  (let ((buffer (get-buffer-create anqa--sessions-buffer-name)))
     (with-current-buffer buffer
-      (let ((inhibit-read-only t))
-        (erase-buffer)
-        (insert
-         (format "Anqa sessions  matched %s / total %s"
-                 matched total)
-         (if (and query (not (string-empty-p query)))
-             (format "  filter: %s\n\n" query)
-           "\n\n"))
-        (if (null sessions)
-            (insert "(no sessions)\n")
-          (dolist (entry sessions)
-            (let ((path (anqa--session-entry-path entry))
-                  (line (anqa--session-entry-annotation entry)))
-              (insert-text-button
-               line
-               'action (lambda (_button)
-                         (anqa-open-session path))
-               'follow-link t
-               'anqa-session path
-               'help-echo path)
-              (insert "\n")))))
-      (goto-char (point-min))
-      (setq buffer-read-only t)
-      (special-mode))
+      (special-mode)
+      (anqa--fill-sessions-buffer query))
     (pop-to-buffer buffer)
     buffer))
 
-(defun anqa-find-session (&optional query)
-  "Pick a catalog session with completion and open it as an Org buffer.
-QUERY pre-filters the catalog on the server when non-empty. With a prefix
-argument, prompt for QUERY first."
-  (interactive
-   (list (if current-prefix-arg
-             (read-string "Filter sessions: ")
-           "")))
-  (anqa-connect)
-  (let* ((result (anqa--session-list-all query))
+(defconst anqa--find-session-limit 80
+  "Max rows for live `anqa-find-session' completion.")
+
+(defvar anqa--find-table (make-hash-table :test #'equal)
+  "Last annotation → path map from `anqa--session-completion-candidates'.")
+
+(defun anqa--session-completion-candidates (query)
+  "Return completion keys for catalog QUERY and store paths on `anqa--find-table'."
+  (let* ((result (anqa--session-list query anqa--find-session-limit 0))
          (sessions (append (plist-get result :sessions) nil))
          (table (make-hash-table :test #'equal))
-         candidates)
-    (when (null sessions)
-      (user-error "No sessions matched%s"
-                  (if (and query (not (string-empty-p query)))
-                      (format " %S" query)
-                    "")))
+         keys)
     (dolist (entry sessions)
       (let* ((annotation (anqa--session-entry-annotation entry))
              (path (anqa--session-entry-path entry))
@@ -604,15 +652,42 @@ argument, prompt for QUERY first."
           (setq key (format "%s (%s)" annotation n)
                 n (1+ n)))
         (puthash key path table)
-        (push key candidates)))
-    (let* ((choice (completing-read "Anqa session: " (nreverse candidates) nil t))
-           (path (gethash choice table)))
-      (unless path
-        (user-error "No session selected"))
-      (anqa-open-session path))))
+        (push key keys)))
+    (setq anqa--find-table table)
+    (nreverse keys)))
+
+(defun anqa--session-completion-table (string pred action)
+  "Dynamic table: send STRING to `session/list' as the catalog query."
+  (pcase action
+    ('metadata
+     '(metadata (category . anqa-session)))
+    (_
+     (complete-with-action
+      action (anqa--session-completion-candidates string) string pred))))
+
+(defun anqa-find-session (&optional query)
+  "Pick a catalog session with completion and open it as an Org buffer.
+The minibuffer text is the catalog query (`harness:grok', `is:running').
+QUERY seeds the initial input when non-empty. With a prefix argument,
+prompt for that seed first."
+  (interactive
+   (list (if current-prefix-arg
+             (read-string "Seed query (harness:grok): ")
+           "")))
+  (anqa-connect)
+  (let* ((choice
+          (completing-read
+           "Anqa session (harness:grok): "
+           #'anqa--session-completion-table
+           nil t (or query "")))
+         (path (gethash choice anqa--find-table)))
+    (unless path
+      (user-error "No session selected"))
+    (anqa-open-session path)))
 
 (defun anqa-open-session (session &optional prompt-index)
-  "Open SESSION as an Org buffer and select PROMPT-INDEX in the TUI."
+  "Open SESSION as an Org outline (turns and notes; expand a turn with C-c C-e).
+When a TUI is attached, PROMPT-INDEX is selected there via `session/open'."
   (interactive (list (read-string "Session path or id: ") nil))
   (let* ((reference (anqa--normalize-session-reference session))
          (connection (anqa--connection-for-session reference))
@@ -656,6 +731,51 @@ argument, prompt for QUERY first."
     (if (and child (not (string-empty-p child)))
         (anqa-open-session child)
       (anqa-open-prompt-at-point))))
+
+(defun anqa--prompt-subtree-bounds ()
+  "Return (begin . end) of the prompt heading at point."
+  (save-excursion
+    (org-back-to-heading t)
+    (while (and (> (org-current-level) 1) (org-up-heading-safe)))
+    (unless (org-entry-get nil "ANQA_PROMPT_INDEX" nil)
+      (user-error "Point is not inside a prompt"))
+    (cons (point) (save-excursion (org-end-of-subtree t t) (point)))))
+
+(defun anqa--extract-prompt-section (text prompt-index)
+  "Return the `* Prompt PROMPT-INDEX' section from TEXT, or nil."
+  (let* ((needle (format "* Prompt %s\n" prompt-index))
+         (start (string-match (regexp-quote needle) text)))
+    (when start
+      (let* ((rest (substring text start))
+             (next (string-match "\n\\* Prompt " rest 1)))
+        (if next (substring rest 0 (1+ next)) rest)))))
+
+(defun anqa-expand-turn-at-point ()
+  "Load transcript bodies for the prompt at point."
+  (interactive)
+  (anqa--require-saved "expanding a turn")
+  (let ((prompt-index (anqa--prompt-index-at-point)))
+    (unless prompt-index (user-error "Point is not inside a prompt"))
+    (let* ((result (anqa--render-session anqa-session-reference t prompt-index))
+           (section (anqa--extract-prompt-section
+                     (plist-get result :text) prompt-index))
+           (bounds (anqa--prompt-subtree-bounds)))
+      (unless section
+        (user-error "No transcript for prompt %s" prompt-index))
+      (let ((inhibit-read-only t))
+        (goto-char (car bounds))
+        (delete-region (car bounds) (cdr bounds))
+        (insert section)
+        (unless (string-suffix-p "\n" section)
+          (insert "\n")))
+      (anqa--apply-document
+       (buffer-substring-no-properties (point-min) (point-max))
+       anqa-session-id
+       (or (plist-get result :notesRevision) anqa-notes-revision)
+       anqa-session-reference)
+      (goto-char (point-min))
+      (re-search-forward (format "^\\* Prompt %s$" prompt-index) nil t)
+      (beginning-of-line))))
 
 (defun anqa--rendered-note-id-p (note-id)
   "Return non-nil when NOTE-ID belongs to the rendered document."
@@ -810,6 +930,7 @@ The TUI terminal buffer stays: it belongs to the user, not to this client."
   "C-c C-n" #'anqa-new-note
   "C-c C-k" #'anqa-delete-note
   "C-c C-o" #'anqa-open-at-point
+  "C-c C-e" #'anqa-expand-turn-at-point
   "C-c C-c" #'anqa-save-note
   "C-x C-s" #'anqa-save-buffer)
 
@@ -817,8 +938,11 @@ The TUI terminal buffer stays: it belongs to the user, not to this client."
   "Major mode for live Anqa Org session buffers.
 
 Transcript is read-only Markdown in source blocks; only note field bodies edit.
+Open is turns and notes; C-c C-e loads that prompt's transcript.
 Keys: C-c C-c save note, C-x C-s save all, C-c C-n new note, C-c C-k delete,
-C-c C-o open child or select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
+C-c C-e expand turn, C-c C-o open child or select prompt in TUI, C-c C-r refresh.
+M-x anqa-list-sessions and anqa-find-session take the catalog query language
+(`harness:grok', `is:running'). In Doom/Evil, gr also refreshes."
   (setq-local write-contents-functions '(anqa-save-buffer))
   (add-hook 'kill-buffer-hook #'anqa--kill-buffer-hook nil t)
   (setq-local org-src-fontify-natively t)

@@ -14,7 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..models import JsonObject, JsonValue, as_json_object, json_as_int, json_as_str
+from ..models import JsonObject, JsonValue, as_json_object, json_as_bool, json_as_int, json_as_str
 from ..notes import (
     NoteEntry,
     NotesConflict,
@@ -835,11 +835,16 @@ class ControlServer:
                 "unsupported editor format",
                 {"supported": list(SUPPORTED_FORMATS), "format": fmt},
             )
+        bodies = True if "bodies" not in params else json_as_bool(params.get("bodies"), True)
+        raw_prompt = params.get("promptIndex")
+        prompt_index = None if raw_prompt is None else json_as_int(raw_prompt)
         ref = self._session_ref(params)
 
         def _render() -> JsonObject:
             try:
-                return self._access.session_render(ref, format=fmt)
+                return self._access.session_render(
+                    ref, format=fmt, bodies=bodies, prompt_index=prompt_index
+                )
             except FileNotFoundError as exc:
                 raise ControlError(404, "session not found", {"session": ref}) from exc
             except ValueError as exc:

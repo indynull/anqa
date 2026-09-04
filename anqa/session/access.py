@@ -301,13 +301,22 @@ class LocalSessionAccess:
             "opened": True,
         }
 
-    def session_render(self, session: str, *, format: str = "org") -> JsonObject:
+    def session_render(
+        self,
+        session: str,
+        *,
+        format: str = "org",
+        bodies: bool = True,
+        prompt_index: int | None = None,
+    ) -> JsonObject:
         """Editor projection document."""
         fmt = (format or "org").strip().lower() or "org"
         if fmt not in SUPPORTED_FORMATS:
             raise ValueError(f"unsupported editor format: {fmt}")
         path = self.require_session(session)
-        document = render_editor_document(path, format=fmt)
+        document = render_editor_document(
+            path, format=fmt, bodies=bodies, prompt_index=prompt_index
+        )
         return {
             "sessionId": document.session_id,
             "notesRevision": document.notes_revision,
@@ -315,6 +324,7 @@ class LocalSessionAccess:
             "format": document.format,
             "contentType": document.content_type,
             "text": document.text,
+            "bodies": bodies,
         }
 
     def notes_list(self, session: str) -> JsonObject:

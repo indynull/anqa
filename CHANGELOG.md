@@ -126,6 +126,10 @@ Cursor (`cursor`) are registered.
   version. Same major keeps a live owner; a major bump is the only
   incompatible handshake change.
 - Emacs opens sessions as Org; Neovim opens them as Markdown.
+  A missing socket starts `anqad -d`. The session list and find
+  commands take the catalog query language; the list buffer reloads
+  when the catalog changes. Open is turns and notes; `C-c C-e` loads
+  the prompt at point.
 
 ### Examples
 

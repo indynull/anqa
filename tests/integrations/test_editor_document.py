@@ -9,9 +9,17 @@ from pathlib import Path
 from anqa.notes import NoteEntry, NotesDoc, save_notes
 
 
-def _render_editor_document(session_dir: Path, *, format: str = "org"):
+def _render_editor_document(
+    session_dir: Path,
+    *,
+    format: str = "org",
+    bodies: bool = True,
+    prompt_index: int | None = None,
+):
     module = import_module("anqa.session.document")
-    return module.render_editor_document(session_dir, format=format)
+    return module.render_editor_document(
+        session_dir, format=format, bodies=bodies, prompt_index=prompt_index
+    )
 
 
 def _write_session(session_dir: Path) -> None:
@@ -112,6 +120,35 @@ def test_render_editor_document_uses_prompt_indexes_and_note_properties(tmp_path
     assert ":ANQA_FIELD_ID: summary" in document.text
     # Field bodies use Org fixed-width lines (cannot form headlines).
     assert ": Wrong branch" in document.text
+
+
+def test_render_editor_document_without_bodies_keeps_notes(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-outline"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    note = NoteEntry.new(
+        turn_index=1,
+        fields={"summary": "Outline note", "detail": "Kept."},
+        event_indices=[3],
+        note_id="n-outline",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+    document = _render_editor_document(session_dir, bodies=False)
+    assert "* Prompt" in document.text
+    assert "#+begin_src markdown" not in document.text
+    assert "first answer" not in document.text
+    assert ":ANQA_NOTE_ID: n-outline" in document.text
+    assert ": Outline note" in document.text
+
+
+def test_render_editor_document_prompt_index_is_one_turn(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-one-prompt"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    document = _render_editor_document(session_dir, prompt_index=9)
+    assert "* Prompt 9" in document.text
+    assert "* Prompt 4" not in document.text
+    assert "second answer" in document.text
 
 
 def test_render_org_transcript_escapes_nested_end_src(tmp_path: Path) -> None:

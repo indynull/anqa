@@ -392,12 +392,14 @@ class ControlClient:
         session: str,
         *,
         format: str = "org",
+        bodies: bool = True,
+        prompt_index: int | None = None,
     ) -> JsonObject:
         """Call ``session/render`` for *session*."""
-        result = await self.request(
-            "session/render",
-            {"session": session, "format": format},
-        )
+        params: JsonObject = {"session": session, "format": format, "bodies": bodies}
+        if prompt_index is not None:
+            params["promptIndex"] = prompt_index
+        result = await self.request("session/render", params)
         return as_json_object(result) if isinstance(result, dict) else {}
 
     async def session_overview(

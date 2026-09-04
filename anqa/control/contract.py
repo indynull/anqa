@@ -587,12 +587,22 @@ METHODS: tuple[MethodSpec, ...] = (
     ),
     MethodSpec(
         name="session/render",
-        role="Project a document (`format`: below)",
+        role="Project a document (`format`: below). Optional `bodies` and `promptIndex`.",
         params=(
             _SESSION,
             FieldSpec("format", "Projection: `org` (default), `markdown`, or `json`."),
+            FieldSpec(
+                "bodies",
+                "When false, turn headings and notes only (no transcript bodies).",
+                json_type="boolean",
+            ),
+            FieldSpec(
+                "promptIndex",
+                "When set, emit only this prompt.",
+                json_type="integer",
+            ),
         ),
-        extra_md="",  # filled after CONTENT_TYPES table in emit
+        extra_md="",  # format table is filled in emit
     ),
     MethodSpec(
         name="notes/list",

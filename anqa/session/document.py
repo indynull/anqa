@@ -10,7 +10,7 @@ from typing import Literal
 
 from .. import event_types as et
 from ..harness.registry import require_adapter
-from ..models import JsonObject, JsonValue
+from ..models import JsonObject, JsonValue, as_json_object, json_as_int
 from ..notes import FieldSpec, NoteEntry, NotesSchema, load_schema, notes_snapshot
 from .subagents import (
     SubagentRun,
@@ -193,7 +193,11 @@ def _render_note_md(note: NoteEntry, schema: NotesSchema) -> list[str]:
 
 
 def _render_segment_org(
-    segment: TurnSegment, notes: list[NoteEntry], schema: NotesSchema
+    segment: TurnSegment,
+    notes: list[NoteEntry],
+    schema: NotesSchema,
+    *,
+    bodies: bool = True,
 ) -> list[str]:
     prompt_index = _prompt_index(segment)
     lines = [
@@ -204,11 +208,16 @@ def _render_segment_org(
         ":END:",
         "",
     ]
-    for event in segment.events:
-        if is_operator_user_event(event):
-            lines.extend(["** User", "", *_org_transcript_lines(event.content), ""])
-        elif event.event_type in et.AGENT_TYPES:
-            lines.extend(["** Assistant", "", *_org_transcript_lines(event.content), ""])
+    if bodies:
+        for event in segment.events:
+            if is_operator_user_event(event):
+                lines.extend(["** User", "", *_org_transcript_lines(event.content), ""])
+            elif event.event_type in et.AGENT_TYPES:
+                lines.extend(["** Assistant", "", *_org_transcript_lines(event.content), ""])
+    else:
+        preview, _idx = segment.user_prompt_preview()
+        if preview:
+            lines.extend(["** User", "", *_org_fixed_lines(preview), ""])
     lines.extend(["** Operator notes", ""])
     for note in notes:
         lines.extend(_render_note_org(note, schema))
@@ -216,7 +225,11 @@ def _render_segment_org(
 
 
 def _render_segment_md(
-    segment: TurnSegment, notes: list[NoteEntry], schema: NotesSchema
+    segment: TurnSegment,
+    notes: list[NoteEntry],
+    schema: NotesSchema,
+    *,
+    bodies: bool = True,
 ) -> list[str]:
     prompt_index = _prompt_index(segment)
     lines = [
@@ -224,11 +237,16 @@ def _render_segment_md(
         _md_comment(**{"prompt-index": prompt_index, "turn-index": segment.turn_index}),
         "",
     ]
-    for event in segment.events:
-        if is_operator_user_event(event):
-            lines.extend(["### User", "", *_md_transcript_lines(event.content), ""])
-        elif event.event_type in et.AGENT_TYPES:
-            lines.extend(["### Assistant", "", *_md_transcript_lines(event.content), ""])
+    if bodies:
+        for event in segment.events:
+            if is_operator_user_event(event):
+                lines.extend(["### User", "", *_md_transcript_lines(event.content), ""])
+            elif event.event_type in et.AGENT_TYPES:
+                lines.extend(["### Assistant", "", *_md_transcript_lines(event.content), ""])
+    else:
+        preview, _idx = segment.user_prompt_preview()
+        if preview:
+            lines.extend(["### User", "", *_md_fixed_lines(preview), ""])
     lines.extend(["### Operator notes", ""])
     for note in notes:
         lines.extend(_render_note_md(note, schema))
@@ -290,6 +308,8 @@ def _render_org(
     notes_by_turn: dict[int, list[NoteEntry]],
     schema: NotesSchema,
     runs: list[SubagentRun],
+    *,
+    bodies: bool = True,
 ) -> str:
     lines = [
         f"#+TITLE: {title}",
@@ -309,7 +329,12 @@ def _render_org(
     lines.extend(_render_subagent_runs_org(runs))
     for segment in segments:
         lines.extend(
-            _render_segment_org(segment, notes_by_turn.get(segment.turn_index, []), schema)
+            _render_segment_org(
+                segment,
+                notes_by_turn.get(segment.turn_index, []),
+                schema,
+                bodies=bodies,
+            )
         )
     return "\n".join(lines).rstrip() + "\n"
 
@@ -325,6 +350,8 @@ def _render_markdown(
     notes_by_turn: dict[int, list[NoteEntry]],
     schema: NotesSchema,
     runs: list[SubagentRun],
+    *,
+    bodies: bool = True,
 ) -> str:
     lines = [
         "---",
@@ -344,7 +371,14 @@ def _render_markdown(
     ]
     lines.extend(_render_subagent_runs_md(runs))
     for segment in segments:
-        lines.extend(_render_segment_md(segment, notes_by_turn.get(segment.turn_index, []), schema))
+        lines.extend(
+            _render_segment_md(
+                segment,
+                notes_by_turn.get(segment.turn_index, []),
+                schema,
+                bodies=bodies,
+            )
+        )
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -471,15 +505,180 @@ def _render_json(
     return json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
 
 
+def _outline_prompt_index(turn: JsonObject) -> int:
+    raw = turn.get("promptIndex")
+    if isinstance(raw, int):
+        return raw
+    turn_index = turn.get("turnIndex")
+    return int(turn_index) if isinstance(turn_index, int) else 0
+
+
+def _render_outline_turn_org(
+    turn: JsonObject,
+    notes: list[NoteEntry],
+    schema: NotesSchema,
+) -> list[str]:
+    prompt_index = _outline_prompt_index(turn)
+    turn_index = json_as_int(turn.get("turnIndex"))
+    preview = str(turn.get("summary") or "").strip()
+    lines = [
+        f"* Prompt {prompt_index}",
+        ":PROPERTIES:",
+        f":ANQA_PROMPT_INDEX: {prompt_index}",
+        f":ANQA_TURN_INDEX: {turn_index}",
+        ":END:",
+        "",
+    ]
+    if preview:
+        lines.extend(["** User", "", *_org_fixed_lines(preview), ""])
+    lines.extend(["** Operator notes", ""])
+    for note in notes:
+        lines.extend(_render_note_org(note, schema))
+    return lines
+
+
+def _render_outline_turn_md(
+    turn: JsonObject,
+    notes: list[NoteEntry],
+    schema: NotesSchema,
+) -> list[str]:
+    prompt_index = _outline_prompt_index(turn)
+    turn_index = json_as_int(turn.get("turnIndex"))
+    preview = str(turn.get("summary") or "").strip()
+    lines = [
+        f"## Prompt {prompt_index}",
+        _md_comment(**{"prompt-index": prompt_index, "turn-index": turn_index}),
+        "",
+    ]
+    if preview:
+        lines.extend(["### User", "", *_md_fixed_lines(preview), ""])
+    lines.extend(["### Operator notes", ""])
+    for note in notes:
+        lines.extend(_render_note_md(note, schema))
+    return lines
+
+
+def _render_outline_document(
+    session_dir: Path,
+    *,
+    format: str,
+    prompt_index: int | None,
+) -> EditorDocument:
+    """Turns + notes from overview. Does not parse the event timeline."""
+    from .control_views import build_session_overview
+
+    overview = build_session_overview(session_dir)
+    raw_meta = overview.get("meta")
+    meta = as_json_object(raw_meta) if isinstance(raw_meta, dict) else {}
+    raw_turns_block = overview.get("turns")
+    turns_block = as_json_object(raw_turns_block) if isinstance(raw_turns_block, dict) else {}
+    raw_turns = turns_block.get("turns")
+    turns: list[JsonObject] = (
+        [as_json_object(row) for row in raw_turns if isinstance(row, dict)]
+        if isinstance(raw_turns, list)
+        else []
+    )
+    if prompt_index is not None:
+        turns = [row for row in turns if _outline_prompt_index(row) == prompt_index]
+    snapshot = notes_snapshot(session_dir)
+    schema = load_schema()
+    notes_by_turn = _notes_by_turn(list(snapshot.doc.sorted_notes()))
+    session_id = str(overview.get("sessionId") or session_dir.name)
+    title = _one_line(str(meta.get("title") or session_id)) or session_dir.name
+    model = str(meta.get("model") or "")
+    outcome = str(meta.get("outcome") or meta.get("status") or "unknown")
+    event_count = json_as_int(meta.get("numEvents"))
+    prompt_indexes = tuple(_outline_prompt_index(row) for row in turns)
+    if format == "org":
+        lines = [
+            f"#+TITLE: {title}",
+            f"#+PROPERTY: ANQA_SESSION_ID {session_id}",
+            f"#+PROPERTY: ANQA_NOTES_REVISION {snapshot.revision}",
+            "",
+            "* Session",
+            ":PROPERTIES:",
+            f":ANQA_SESSION_ID: {session_id}",
+            ":END:",
+            "",
+            f"- Model: {model}",
+            f"- Outcome: {outcome}",
+            f"- Events: {event_count}",
+            "",
+        ]
+        for row in turns:
+            lines.extend(
+                _render_outline_turn_org(
+                    row, notes_by_turn.get(json_as_int(row.get("turnIndex")), []), schema
+                )
+            )
+        text = "\n".join(lines).rstrip() + "\n"
+    elif format == "markdown":
+        lines = [
+            "---",
+            f"anqa_session_id: {session_id}",
+            f"anqa_notes_revision: {snapshot.revision}",
+            f"title: {_yaml_escape(title)}",
+            "---",
+            "",
+            _md_comment(**{"session-id": session_id, "notes-revision": snapshot.revision}),
+            "",
+            f"# {title}",
+            "",
+            f"- Model: {model}",
+            f"- Outcome: {outcome}",
+            f"- Events: {event_count}",
+            "",
+        ]
+        for row in turns:
+            lines.extend(
+                _render_outline_turn_md(
+                    row, notes_by_turn.get(json_as_int(row.get("turnIndex")), []), schema
+                )
+            )
+        text = "\n".join(lines).rstrip() + "\n"
+    else:
+        text = (
+            json.dumps(
+                {
+                    "sessionId": session_id,
+                    "notesRevision": snapshot.revision,
+                    "title": title,
+                    "model": model,
+                    "outcome": outcome,
+                    "eventCount": event_count,
+                    "promptIndexes": list(prompt_indexes),
+                    "bodies": False,
+                    "turns": turns,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+    return EditorDocument(
+        session_id=session_id,
+        notes_revision=snapshot.revision,
+        prompt_indexes=prompt_indexes,
+        text=text,
+        format=format,
+        content_type=CONTENT_TYPES[format],
+    )
+
+
 def render_editor_document(
     session_dir: Path,
     *,
     format: str = "org",
+    bodies: bool = True,
+    prompt_index: int | None = None,
 ) -> EditorDocument:
     """Render one session for an editor client.
 
     :param session_dir: Session directory on disk.
     :param format: ``org`` (Emacs), ``markdown`` (Neovim), or ``json`` (tools).
+    :param bodies: When false, emit turn headings plus notes from overview
+        (no timeline parse, no transcript source blocks).
+    :param prompt_index: When set, emit only that prompt.
     :returns: Projection text plus session/revision identities.
     :raises ValueError: When *format* is not supported.
     """
@@ -488,6 +687,9 @@ def render_editor_document(
         supported = ", ".join(SUPPORTED_FORMATS)
         msg = f"unsupported editor format {format!r} (supported: {supported})"
         raise ValueError(msg)
+
+    if not bodies:
+        return _render_outline_document(session_dir, format=fmt, prompt_index=prompt_index)
 
     (
         session_id,
@@ -501,6 +703,9 @@ def render_editor_document(
         schema,
         event_count,
     ) = _load_session_bundle(session_dir)
+    if prompt_index is not None:
+        segments = [seg for seg in segments if _prompt_index(seg) == prompt_index]
+        prompt_indexes = tuple(_prompt_index(seg) for seg in segments)
 
     events = [event for segment in segments for event in segment.events]
     runs = subagent_runs_for_session(
@@ -519,6 +724,7 @@ def render_editor_document(
             notes_by_turn,
             schema,
             runs,
+            bodies=bodies,
         )
     elif fmt == "markdown":
         text = _render_markdown(
@@ -532,6 +738,7 @@ def render_editor_document(
             notes_by_turn,
             schema,
             runs,
+            bodies=bodies,
         )
     else:
         text = _render_json(
