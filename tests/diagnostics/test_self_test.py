@@ -13,7 +13,9 @@ _HOST_CHECK_IDS = {
     "catalog",
     "session_display",
     "sway_socket",
+    "sway_hud_conf",
     "hud_summon",
+    "notifications_bus",
     "config-toml",
 }
 
@@ -124,3 +126,53 @@ def test_hud_summon_doctor_ok_when_fake_server_accepts(monkeypatch):
     assert r.ok is True
     assert r.required is False
     assert "toggle" in r.detail
+
+
+def test_sway_hud_conf_missing_on_sway_seat(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SWAYSOCK", str(tmp_path / "sway.sock"))
+    from anqa.diagnostics import self_test as st
+
+    monkeypatch.setattr(st.Path, "home", staticmethod(lambda: tmp_path))
+
+    r = st._check_sway_hud_conf()
+    assert r.ok is False
+    assert r.required is False
+    assert "install-desktop" in r.detail
+
+
+def test_sway_hud_conf_present(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("SWAYSOCK", str(tmp_path / "sway.sock"))
+    from anqa.diagnostics import self_test as st
+
+    monkeypatch.setattr(st.Path, "home", staticmethod(lambda: tmp_path))
+    dest = tmp_path / ".config" / "anqa" / "sway-hud.conf"
+    dest.parent.mkdir(parents=True)
+    dest.write_text("bindsym $mod+Shift+a exec anqa desktop --toggle\n", encoding="utf-8")
+
+    r = st._check_sway_hud_conf()
+    assert r.ok is True
+    assert "include" in r.detail
+
+
+def test_sway_hud_conf_skipped_without_swaysock(monkeypatch):
+    monkeypatch.delenv("SWAYSOCK", raising=False)
+    from anqa.diagnostics import self_test as st
+
+    r = st._check_sway_hud_conf()
+    assert r.ok is True
+    assert "skipped" in r.detail
+
+
+def test_notifications_bus_missing_name(monkeypatch):
+    from anqa.diagnostics import self_test as st
+
+    class _Proc:
+        returncode = 1
+        stdout = ""
+        stderr = ""
+
+    monkeypatch.setattr(st.shutil, "which", lambda _: "/usr/bin/busctl")
+    monkeypatch.setattr(st.subprocess, "run", lambda *a, **k: _Proc())
+    r = st._check_notifications_bus()
+    assert r.ok is False
+    assert "dunst" in r.detail

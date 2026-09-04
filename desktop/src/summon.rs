@@ -31,11 +31,12 @@ pub enum SummonAction {
     Toggle,
 }
 
-/// One summon request: verb plus optional xdg-activation token.
+/// One summon request: verb, optional xdg-activation token, optional session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SummonRequest {
     pub action: SummonAction,
     pub token: Option<String>,
+    pub session_id: Option<String>,
 }
 
 impl SummonRequest {
@@ -43,6 +44,16 @@ impl SummonRequest {
         Self {
             action,
             token: None,
+            session_id: None,
+        }
+    }
+
+    /// Show the overlay and open *session_id* (notify click / ``--open``).
+    pub fn open(session_id: impl Into<String>) -> Self {
+        Self {
+            action: SummonAction::Show,
+            token: None,
+            session_id: sanitize_session_id(&session_id.into()),
         }
     }
 }
@@ -81,7 +92,7 @@ pub fn parse_command(raw: &str) -> Option<SummonAction> {
     parse_request(raw).map(|r| r.action)
 }
 
-/// Parse ``show`` / ``hide`` / ``toggle`` and an optional same-line token.
+/// Parse ``show`` / ``hide`` / ``toggle`` / ``open <sessionId>`` and an optional token.
 pub fn parse_request(raw: &str) -> Option<SummonRequest> {
     let line = raw.trim();
     if line.is_empty() {
@@ -89,22 +100,50 @@ pub fn parse_request(raw: &str) -> Option<SummonRequest> {
     }
     let mut parts = line.splitn(2, char::is_whitespace);
     let verb = parts.next()?.to_ascii_lowercase();
+    let rest = parts.next().map(str::trim).filter(|t| !t.is_empty());
+    if verb == "open" {
+        let rest = rest?;
+        let mut bits = rest.splitn(2, char::is_whitespace);
+        let sid = sanitize_session_id(bits.next()?)?;
+        let token = bits
+            .next()
+            .map(str::trim)
+            .filter(|t| !t.is_empty())
+            .and_then(sanitize_token);
+        return Some(SummonRequest {
+            action: SummonAction::Show,
+            token,
+            session_id: Some(sid),
+        });
+    }
     let action = match verb.as_str() {
         "show" => SummonAction::Show,
         "hide" => SummonAction::Hide,
         "toggle" => SummonAction::Toggle,
         _ => return None,
     };
-    let token = parts
-        .next()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .and_then(sanitize_token);
+    let token = rest.and_then(sanitize_token);
     let token = match action {
         SummonAction::Hide => None,
         _ => token,
     };
-    Some(SummonRequest { action, token })
+    Some(SummonRequest {
+        action,
+        token,
+        session_id: None,
+    })
+}
+
+/// Session id after trim: 1..=256 bytes, no whitespace or CR/LF.
+pub fn sanitize_session_id(raw: &str) -> Option<String> {
+    let t = raw.trim();
+    if t.is_empty() || t.len() > 256 {
+        return None;
+    }
+    if t.chars().any(|c| c.is_whitespace() || c == '\n' || c == '\r') {
+        return None;
+    }
+    Some(t.to_string())
 }
 
 /// Token after trim: 1..=512 bytes, no CR/LF. Empty or oversize is absent.
@@ -218,7 +257,11 @@ pub fn send_command(action: SummonAction) -> Result<(), SummonError> {
         }
         _ => take_env_token(),
     };
-    send_request(SummonRequest { action, token })
+    send_request(SummonRequest {
+        action,
+        token,
+        session_id: None,
+    })
 }
 
 /// Send a parsed request to the default socket.
@@ -260,8 +303,14 @@ pub fn send_request_to(path: &Path, req: &SummonRequest) -> Result<(), SummonErr
     }
 }
 
-/// Canonical wire: ``verb`` or ``verb token``, always one LF.
+/// Canonical wire: ``verb``, ``verb token``, ``open sid``, or ``open sid token``.
 pub fn encode_request(req: &SummonRequest) -> String {
+    if let Some(sid) = req.session_id.as_deref().and_then(sanitize_session_id) {
+        return match req.token.as_deref().and_then(sanitize_token) {
+            Some(tok) => format!("open {sid} {tok}\n"),
+            None => format!("open {sid}\n"),
+        };
+    }
     match req.action {
         SummonAction::Hide => format!("{}\n", command_word(req.action)),
         _ => match req.token.as_deref().and_then(sanitize_token) {
@@ -469,6 +518,7 @@ mod tests {
             Some(SummonRequest {
                 action: SummonAction::Toggle,
                 token: Some("abc.def".into()),
+                session_id: None,
             })
         );
         assert_eq!(
@@ -476,6 +526,7 @@ mod tests {
             Some(SummonRequest {
                 action: SummonAction::Show,
                 token: Some("tok-1".into()),
+                session_id: None,
             })
         );
     }
@@ -507,6 +558,7 @@ mod tests {
             encode_request(&SummonRequest {
                 action: SummonAction::Show,
                 token: Some("t1".into()),
+                session_id: None,
             }),
             "show t1\n"
         );
@@ -514,6 +566,7 @@ mod tests {
             encode_request(&SummonRequest {
                 action: SummonAction::Toggle,
                 token: Some("t2".into()),
+                session_id: None,
             }),
             "toggle t2\n"
         );
@@ -521,6 +574,7 @@ mod tests {
             encode_request(&SummonRequest {
                 action: SummonAction::Toggle,
                 token: Some("a\nb".into()),
+                session_id: None,
             }),
             "toggle\n"
         );
@@ -528,9 +582,34 @@ mod tests {
             encode_request(&SummonRequest {
                 action: SummonAction::Hide,
                 token: Some("ignored".into()),
+                session_id: None,
             }),
             "hide\n"
         );
+        assert_eq!(
+            encode_request(&SummonRequest::open("sess-1")),
+            "open sess-1\n"
+        );
+    }
+
+    #[test]
+    fn parse_request_open_session() {
+        assert_eq!(
+            parse_request("open sess-1"),
+            Some(SummonRequest::open("sess-1"))
+        );
+        assert_eq!(
+            parse_request("OPEN  grok:abc  tok-9"),
+            Some(SummonRequest {
+                action: SummonAction::Show,
+                token: Some("tok-9".into()),
+                session_id: Some("grok:abc".into()),
+            })
+        );
+        assert_eq!(parse_request("open"), None);
+        assert_eq!(parse_request("open   "), None);
+        assert_eq!(sanitize_session_id("a b"), None);
+        assert_eq!(sanitize_session_id(&"x".repeat(257)), None);
     }
 
     #[cfg(unix)]
@@ -557,6 +636,7 @@ mod tests {
             &SummonRequest {
                 action: SummonAction::Toggle,
                 token: Some("act.token".into()),
+                session_id: None,
             },
         )
         .expect("send");
@@ -566,6 +646,7 @@ mod tests {
             SummonRequest {
                 action: SummonAction::Toggle,
                 token: Some("act.token".into()),
+                session_id: None,
             }
         );
         handle.join().unwrap();

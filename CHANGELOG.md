@@ -106,8 +106,11 @@ Cursor (`cursor`) are registered.
   cargo-builds this checkout.
 - Default hotkey is Cmd+Shift+A (macOS) / Ctrl+Shift+A (Windows and
   X11). On Wayland bind `anqa desktop --toggle`.
-- `--install-desktop` writes user-local icons and a launcher named
-  anqa.
+- A desktop notification for awaiting / cancelled / failed offers
+  **Open**; the default click summons the HUD on that session.
+- `--install-desktop` writes user-local icons, a launcher named anqa,
+  and `~/.config/anqa/sway-hud.conf`. `anqa doctor` reports a missing
+  Sway include and the Notifications bus.
 - The palette is on icedtea 0.16. Session cards highlight on release.
 - Clearing catalog or Timeline search remounts the idle list (not the
   leftover short search window).

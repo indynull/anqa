@@ -274,6 +274,7 @@ Details: [`desktop/README.md`](desktop/README.md).
 anqad -d             # or let the client start anqad
 anqa desktop         # PATH binary from uv tool install; one process + tray
 anqa desktop --toggle    # show or hide (Wayland bind this)
+anqa desktop --open ID   # show and open a catalog session (running HUD)
 anqa desktop --restart   # replace the running palette
 anqa desktop --rebuild   # cargo-build this checkout, then launch
 ```
@@ -287,7 +288,10 @@ X11 Linux). Override with `hud.global_shortcut` in
 `~/.anqa/config.toml` or `ANQA_HUD_SHORTCUT`. On Wayland bind
 `anqa desktop --toggle`: a compositor bind forwards an activation token so
 you can type immediately; tray **Show** or a terminal `--toggle`
-does not steal the keyboard. Sway places the overlay (float/center);
+does not steal the keyboard. Sway: `anqa desktop --install-desktop` then
+`include ~/.config/anqa/sway-hud.conf` (`examples/sway/`). A desktop
+notification **Open** (or the default click) shows the palette on that
+session. Sway places the overlay (float/center);
 focus is that token. While the overlay is on screen, a live poll
 re-reads overview about every **3 seconds** (idle sessions slower).
 An unfocused pop-out or hidden overlay waits on control notifies instead.

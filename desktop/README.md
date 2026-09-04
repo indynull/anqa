@@ -31,6 +31,7 @@ product version.
 anqa desktop --toggle    # show or hide
 anqa desktop --show
 anqa desktop --hide
+anqa desktop --open ID   # show and open a catalog session
 ```
 
 `--install-desktop` writes user-local icons and a launcher named
@@ -78,8 +79,9 @@ only; serve stays up.
 
 Desktop notifications fire for sessions that are awaiting the operator,
 cancelled, or failed. List ``complete`` is the last turn sitting idle,
-not a finished session.
-Linux uses the 64px
+not a finished session. The default click (and an **Open** action)
+sends `open <sessionId>` on the summon socket so the running HUD shows
+that session. Linux uses the 64px
 tray tile; macOS and Windows use the square app icon
 (`~/.anqa/hud-notify.png`). Disable with `ANQA_HUD_NOTIFY=0` or
 `hud.desktop_notifications: false`.

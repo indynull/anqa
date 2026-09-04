@@ -232,6 +232,13 @@ def cmd_desktop(
             help="Show or hide (running HUD). Preferred Sway bindsym target.",
         ),
     ] = False,
+    open_session: Annotated[
+        str | None,
+        typer.Option(
+            "--open",
+            help="Show the palette and open this catalog session (running HUD).",
+        ),
+    ] = None,
 ) -> None:
     """Desktop session palette (control client).
 
@@ -246,9 +253,9 @@ def cmd_desktop(
     from .control.server import default_socket_path
     from .hud.app import run_hud
 
-    summon_flags = sum(1 for f in (show, hide, toggle) if f)
+    summon_flags = sum(1 for f in (show, hide, toggle, bool(open_session)) if f)
     if summon_flags > 1:
-        typer.echo("error: use only one of --show, --hide, --toggle", err=True)
+        typer.echo("error: use only one of --show, --hide, --toggle, --open", err=True)
         raise typer.Exit(1)
     summon: str | None = None
     if show:
@@ -257,6 +264,8 @@ def cmd_desktop(
         summon = "hide"
     elif toggle:
         summon = "toggle"
+    elif open_session:
+        summon = "open"
 
     sock = Path(socket).expanduser() if socket is not None else default_socket_path()
     code = run_hud(
@@ -270,6 +279,7 @@ def cmd_desktop(
         restart=restart,
         install_desktop=install_desktop,
         summon=summon,
+        open_session=open_session,
     )
     raise typer.Exit(code)
 

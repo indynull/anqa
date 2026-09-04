@@ -26,6 +26,7 @@ pub struct DesktopNotice {
     pub summary: String,
     pub body: String,
     pub urgency: UrgencyKind,
+    pub session_id: String,
 }
 
 /// How a status observation relates to the last value for that session.
@@ -78,16 +79,19 @@ pub fn session_notice(title: &str, sid: &str, from: &str, to: &str) -> Option<De
             summary: "Awaiting a reply".into(),
             body: format!("{label} is waiting for a reply"),
             urgency: UrgencyKind::Normal,
+            session_id: sid.to_string(),
         },
         "cancelled" => DesktopNotice {
             summary: "Session cancelled".into(),
             body: label,
             urgency: UrgencyKind::Normal,
+            session_id: sid.to_string(),
         },
         "error" => DesktopNotice {
             summary: "Session failed".into(),
             body: label,
             urgency: UrgencyKind::Critical,
+            session_id: sid.to_string(),
         },
         _ => return None,
     })
@@ -95,6 +99,11 @@ pub fn session_notice(title: &str, sid: &str, from: &str, to: &str) -> Option<De
 
 pub fn notice_row_key(sid: &str) -> String {
     sid.to_string()
+}
+
+/// True when a notification action should summon and open the session.
+pub fn notify_action_opens(action: &str) -> bool {
+    matches!(action, "default" | "open")
 }
 
 /// Record catalog rows. When *seed* is true, remember statuses without posting.
@@ -195,7 +204,20 @@ fn send_other(notice: &DesktopNotice) -> Result<(), String> {
         UrgencyKind::Normal => notify_rust::Urgency::Normal,
         UrgencyKind::Critical => notify_rust::Urgency::Critical,
     });
-    n.show().map(|_| ()).map_err(|e| e.to_string())
+    if !notice.session_id.is_empty() {
+        n.action("default", "Open");
+        n.action("open", "Open");
+    }
+    let handle = n.show().map_err(|e| e.to_string())?;
+    if !notice.session_id.is_empty() {
+        let sid = notice.session_id.clone();
+        handle.wait_for_action(move |action| {
+            if notify_action_opens(action) {
+                let _ = crate::summon::send_request(crate::summon::SummonRequest::open(sid.clone()));
+            }
+        });
+    }
+    Ok(())
 }
 
 fn icon_file() -> Option<String> {
@@ -301,6 +323,7 @@ mod tests {
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].summary, "Awaiting a reply");
         assert!(notes[0].body.contains("Demo"));
+        assert_eq!(notes[0].session_id, "abc");
     }
 
     #[test]
@@ -345,6 +368,14 @@ mod tests {
     fn running_is_silent() {
         assert!(session_notice("t", "s", "pending", "running").is_none());
         assert!(session_notice("t", "s", "running", "complete").is_none());
+    }
+
+    #[test]
+    fn notify_action_opens_default_and_open() {
+        assert!(notify_action_opens("default"));
+        assert!(notify_action_opens("open"));
+        assert!(!notify_action_opens("__closed"));
+        assert!(!notify_action_opens("dismiss"));
     }
 
     #[test]

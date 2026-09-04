@@ -6,6 +6,8 @@ seat. Used by ``anqa doctor`` and the in-app self-test modal.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -195,6 +197,84 @@ def _check_hud_summon_socket() -> CheckResult:
     )
 
 
+def _check_sway_hud_conf() -> CheckResult:
+    """Advisory: Sway overlay fragment when this is a Sway seat."""
+    import os
+
+    sock = (os.environ.get("SWAYSOCK") or "").strip()
+    path = Path.home() / ".config" / "anqa" / "sway-hud.conf"
+    if not sock:
+        return CheckResult(
+            id="sway_hud_conf",
+            name="Sway HUD include",
+            ok=True,
+            detail="skipped (SWAYSOCK unset)",
+            required=False,
+        )
+    if path.is_file():
+        return CheckResult(
+            id="sway_hud_conf",
+            name="Sway HUD include",
+            ok=True,
+            detail=f"{path} — add: include ~/.config/anqa/sway-hud.conf",
+            required=False,
+        )
+    return CheckResult(
+        id="sway_hud_conf",
+        name="Sway HUD include",
+        ok=False,
+        detail=(
+            f"{path} missing — anqa desktop --install-desktop writes it; "
+            "then include ~/.config/anqa/sway-hud.conf"
+        ),
+        required=False,
+    )
+
+
+def _check_notifications_bus() -> CheckResult:
+    """Advisory: session bus name for desktop notifications."""
+    busctl = shutil.which("busctl")
+    if busctl is None:
+        return CheckResult(
+            id="notifications_bus",
+            name="Notifications bus",
+            ok=True,
+            detail="busctl not on PATH — skipped",
+            required=False,
+        )
+    try:
+        proc = subprocess.run(
+            [busctl, "--user", "status", "org.freedesktop.Notifications"],
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+    except OSError as exc:
+        return CheckResult(
+            id="notifications_bus",
+            name="Notifications bus",
+            ok=False,
+            detail=f"busctl failed: {exc}",
+            required=False,
+        )
+    if proc.returncode == 0:
+        return CheckResult(
+            id="notifications_bus",
+            name="Notifications bus",
+            ok=True,
+            detail="org.freedesktop.Notifications is on the session bus",
+            required=False,
+        )
+    return CheckResult(
+        id="notifications_bus",
+        name="Notifications bus",
+        ok=False,
+        detail="no Notifications name — start dunst, mako, fnott, or swaync",
+        required=False,
+    )
+
+
 def _check_leftover_json_config() -> CheckResult:
     """Warn when a sibling ``config.json`` exists; prefs live in ``config.toml``."""
     from ..config import leftover_json_config_path, load_app_config
@@ -227,7 +307,9 @@ def run_self_test(*, catalog_root: Path | None = None) -> SelfTestReport:
         _check_catalog_store(catalog_root),
         _check_session_display(),
         _check_sway_socket(),
+        _check_sway_hud_conf(),
         _check_hud_summon_socket(),
+        _check_notifications_bus(),
         _check_leftover_json_config(),
     ]
     return SelfTestReport(checks=checks)

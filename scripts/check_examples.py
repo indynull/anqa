@@ -41,6 +41,7 @@ def check_readmes() -> None:
         EXAMPLES / "keys" / "README.md",
         EXAMPLES / "config" / "README.md",
         EXAMPLES / "themes" / "README.md",
+        EXAMPLES / "sway" / "README.md",
     ]
     for path in required:
         if not path.is_file() or path.stat().st_size < 40:
@@ -124,6 +125,19 @@ def check_notes_schema() -> None:
     _ok(f"{_repo_rel(path)}  schema_id={schema.schema_id} fields={len(schema.fields)}")
 
 
+def check_sway_hud() -> None:
+    """Validate examples/sway overlay fragment."""
+    path = EXAMPLES / "sway" / "sway-hud.conf"
+    if not path.is_file():
+        _err(path, "missing Sway HUD include")
+    text = path.read_text(encoding="utf-8")
+    if "dev.indynull.anqa-hud.overlay" not in text:
+        _err(path, "missing overlay app_id")
+    if "anqa desktop --toggle" not in text:
+        _err(path, "missing compositor toggle bind")
+    _ok(f"{_repo_rel(path)}")
+
+
 def main() -> int:
     if not EXAMPLES.is_dir():
         print(f"error: missing {EXAMPLES}", file=sys.stderr)
@@ -134,6 +148,7 @@ def main() -> int:
         check_keys_overlay()
         check_app_config()
         check_user_theme()
+        check_sway_hud()
     except _Fail as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

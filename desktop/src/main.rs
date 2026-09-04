@@ -31,6 +31,7 @@ fn main() {
                --hide              Hide the overlay (running anqa)\n\
                --toggle            Show or hide (running anqa; Sway bind target).
                                    Forwards XDG_ACTIVATION_TOKEN to the palette.\n\
+               --open <session>    Show and open a catalog session (running anqa).\n\
                -V, --version       Print the product version\n\
                -h, --help          Show this help\n\
              \n\
@@ -39,6 +40,15 @@ fn main() {
             anqa_hud::VERSION
         );
         std::process::exit(0);
+    }
+    if let Some(sid) = cli_open_session(&args) {
+        match anqa_hud::summon::send_request(anqa_hud::summon::SummonRequest::open(sid)) {
+            Ok(()) => std::process::exit(0),
+            Err(err) => {
+                eprintln!("anqa: {err}");
+                std::process::exit(1);
+            }
+        }
     }
     if let Some(action) = cli_summon_action(&args) {
         match anqa_hud::summon::plan_summon_cli(action, anqa_hud::summon::send_command(action)) {
@@ -72,6 +82,25 @@ fn cli_summon_action(args: &[String]) -> Option<anqa_hud::summon::SummonAction> 
             "--hide" => return Some(anqa_hud::summon::SummonAction::Hide),
             "--toggle" => return Some(anqa_hud::summon::SummonAction::Toggle),
             _ => {}
+        }
+    }
+    None
+}
+
+fn cli_open_session(args: &[String]) -> Option<String> {
+    let mut iter = args.iter();
+    while let Some(a) = iter.next() {
+        if a.as_str() == "--open" {
+            return iter
+                .next()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+        }
+        if let Some(sid) = a.strip_prefix("--open=") {
+            let sid = sid.trim();
+            if !sid.is_empty() {
+                return Some(sid.to_string());
+            }
         }
     }
     None

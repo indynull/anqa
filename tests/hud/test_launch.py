@@ -257,6 +257,23 @@ def test_send_summon_command_rejects_unknown() -> None:
     assert launch_mod.send_summon_command("explode") == 1
 
 
+def test_send_summon_command_open_forwards_session(tmp_path: Path) -> None:
+    binary = tmp_path / "anqa-hud"
+    binary.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    binary.chmod(0o755)
+    with (
+        patch.object(launch_mod, "find_hud_binary", return_value=binary),
+        patch.object(launch_mod.subprocess, "run", return_value=_Proc(0)) as mock_run,
+    ):
+        code = launch_mod.send_summon_command("open", session="sess-1")
+    assert code == 0
+    assert mock_run.call_args.args[0] == [str(binary), "--open", "sess-1"]
+
+
+def test_send_summon_command_open_needs_session() -> None:
+    assert launch_mod.send_summon_command("open") == 1
+
+
 def test_run_hud_summon_show_starts_when_not_running(tmp_path: Path) -> None:
     from anqa.control.daemon import EnsureDaemonResult
     from anqa.hud import app as hud_app
@@ -298,7 +315,7 @@ def test_run_hud_summon_toggle_when_socket_live() -> None:
     ):
         code = hud_app.run_hud(summon="toggle", auto_anqad=False)
     assert code == 0
-    mock_send.assert_called_once_with("toggle")
+    mock_send.assert_called_once_with("toggle", session=None)
     mock_daemon.assert_not_called()
     mock_launch.assert_not_called()
 

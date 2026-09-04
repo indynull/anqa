@@ -37,6 +37,7 @@ def run_hud(
     restart: bool = False,
     install_desktop: bool = False,
     summon: str | None = None,
+    open_session: str | None = None,
 ) -> int:
     """Ensure control owner is live, then launch the iced ``anqa-hud`` binary.
 
@@ -51,10 +52,11 @@ def run_hud(
     *install_desktop* only writes user-local icons/launcher entries (no serve,
     no HUD process).
 
-    *summon* is ``show`` / ``hide`` / ``toggle``: talk to a running HUD via the
-    summon Unix socket (Wayland/Sway compositor binds). When the HUD is not
-    running, ``show`` and ``toggle`` start it with
-    ``ANQA_HUD_SHOW_ON_START``; ``hide`` is a no-op (exit 0).
+    *summon* is ``show`` / ``hide`` / ``toggle`` / ``open``: talk to a running
+    HUD via the summon Unix socket (Wayland/Sway compositor binds). When the
+    HUD is not running, ``show`` and ``toggle`` start it with
+    ``ANQA_HUD_SHOW_ON_START``; ``hide`` and ``open`` are no-ops (exit 0 / 1).
+    *open_session* is the catalog id for ``open``.
 
     The HUD is always a **client**. A live TUI or ``anqad`` already
     holding the socket is success (attach), not an error.
@@ -82,8 +84,11 @@ def run_hud(
         )
 
         word = summon.strip().lower()
-        if word not in {"show", "hide", "toggle"}:
+        if word not in {"show", "hide", "toggle", "open"}:
             sys.stderr.write(f"error: unknown summon action {summon!r}\n")
+            return 1
+        if word == "open" and not (open_session or "").strip():
+            sys.stderr.write("error: --open needs a session id\n")
             return 1
         if summon_socket_accepts() or hud_process_running():
             # Prefer the socket when the process is up; brief wait if racing boot.
@@ -92,7 +97,7 @@ def run_hud(
                 while time.monotonic() < deadline and not summon_socket_accepts():
                     time.sleep(0.05)
             if summon_socket_accepts():
-                code = send_summon_command(word)
+                code = send_summon_command(word, session=open_session)
                 if code == 127:
                     sys.stderr.write(
                         "error: anqa-hud binary not found for summon.\n"
@@ -104,6 +109,9 @@ def run_hud(
             # Fall through to start when process is dead but socket stale.
         if word == "hide":
             return 0
+        if word == "open":
+            sys.stderr.write("error: HUD is not running (anqa desktop)\n")
+            return 1
         # Start a long-lived HUD and show on boot.
         os.environ["ANQA_HUD_SHOW_ON_START"] = "1"
 
