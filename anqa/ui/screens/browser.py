@@ -110,6 +110,7 @@ from ..widgets.controls import FILTER_BAR_CLASS, FILTER_LABEL_CLASS
 from ..widgets.detail_view import DetailView
 from ..widgets.diff_view import DiffView
 from ..widgets.notes_modal import NotesModal, NotesPickModal, note_fields_body
+from ..widgets.sash import VerticalSash
 from ..widgets.timeline import TimelineTable
 
 _CHROME_LABEL_MAX = 48
@@ -347,6 +348,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                             )
                         yield Static("", id="timeline-query-hints", classes="session-query-hints")
                         yield TimelineTable(id="timeline-list")
+                    yield VerticalSash("timeline-panel", id="timeline-sash")
                     with Vertical(id="detail-column"):
                         yield DetailView(id="detail-panel")
             with TabPane(U.tab_summary(), id="tab-summary"):

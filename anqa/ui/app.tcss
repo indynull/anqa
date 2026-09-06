@@ -123,7 +123,6 @@ TabPane {
     width: 3fr;
     height: 1fr;
     layout: vertical;
-    border-right: solid $primary-lighten-2;
 }
 
 #detail-column {
@@ -145,6 +144,15 @@ TabPane {
     border: none;
 }
 
+#timeline-sash {
+    margin: 0;
+}
+
+#browser-layout.event-reader #timeline-sash {
+    display: none;
+    width: 0;
+}
+
 #browser-layout.event-reader #detail-column {
     width: 1fr;
 }
@@ -152,6 +160,16 @@ TabPane {
 #timeline-list {
     height: 1fr;
     min-height: 5;
+}
+
+/* Tall focus border is a second divider next to the sash. */
+#timeline-list:focus {
+    border: solid $primary-background;
+}
+
+#timeline-list:focus > .datatable--header {
+    background: $accent;
+    color: $text;
 }
 
 /* ── Session load bar (main screen) ───────────────────────────────────── */
