@@ -72,6 +72,8 @@ Cursor (`cursor`) are registered.
   browser, notes, and export.
 - Browser panes are Timeline, Summary, Diff, and Notes.
 - Timeline Filter and Turn stack; Tail follows a live session.
+  Drag the list/detail sash to resize the panes. Enter still
+  opens a full-width event.
   Opening an event asks for the 50,000-character body.
   Search (`turn:>300`, `tool:`, …) asks the session store for
   matching rows, not only the first loaded page. The Turn column

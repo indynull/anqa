@@ -17,7 +17,9 @@ from anqa.ui.data_table import cursor_row_key
 from anqa.ui.screens.browser import BrowserScreen
 from anqa.ui.selectable_static import SelectableStatic
 from anqa.ui.widgets.controls import FILTER_LABEL_CLASS
+from anqa.ui.widgets.sash import VerticalSash
 from anqa.ui.widgets.timeline import TimelineTable
+from textual.events import MouseMove
 from textual.widgets import Input, Static, Switch, TabbedContent
 
 from .pilot_helpers import static_plain, wait_until
@@ -201,6 +203,52 @@ async def test_enter_opens_full_width_event_and_escape_restores_list(
         if opened_event is not None:
             assert screen._current_event is not None
             assert screen._current_event.index == opened_event
+
+
+@pytest.mark.asyncio
+async def test_timeline_sash_drag_resizes_the_list(tmp_path: Path) -> None:
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    sess = _write_multi_turn_session(traces)
+    app = _host_app(work, traces)
+
+    async with app.run_test(size=(140, 48)) as pilot:
+        screen = await _open_browser(app, pilot, sess)
+        sash = screen.query_one("#timeline-sash", VerticalSash)
+        assert sash.orientation == "vertical"
+        assert sash.ALLOW_SELECT is False
+        assert "ew-resize" in VerticalSash.DEFAULT_CSS
+        panel = screen.query_one("#timeline-panel")
+        layout = screen.query_one("#browser-layout")
+        before = panel.size.width
+        assert before > 40
+        await pilot.mouse_down(sash)
+        sash.post_message(
+            MouseMove(
+                sash,
+                0,
+                0,
+                0,
+                0,
+                1,
+                False,
+                False,
+                False,
+                screen_x=float(layout.region.x + 32),
+                screen_y=float(sash.region.y),
+            )
+        )
+        await wait_until(
+            pilot,
+            lambda: panel.size.width != before,
+            description="sash drag changes list width",
+        )
+        assert 20 <= panel.size.width <= 40
+        await pilot.mouse_up(sash)
+        selected = screen.get_selected_text()
+        assert not selected
+        screen.action_toggle_event_reader()
+        assert not sash.display
 
 
 @pytest.mark.asyncio

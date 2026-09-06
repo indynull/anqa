@@ -206,6 +206,9 @@ The footer lists the keys that apply now; `?` is the full list.
 | Ctrl+S | pickers | Apply the selection |
 | Esc | pickers | Cancel |
 
+On Timeline, drag the list/detail divider to resize the panes. Enter
+still opens a full-width event.
+
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
 / `h` `l` (Timeline turns while All turns is selected) / `N`. HUD panes are Tab
 and Ctrl+1–5 except on Notes, where Tab walks the note fields and
