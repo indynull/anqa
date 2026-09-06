@@ -92,13 +92,21 @@ pub enum Message {
     EventsTurnPicked(EventsTurnPick),
     /// Turns card click: focus that turn.
     FocusTurn(i64),
+    /// Turns list row (filtered index).
+    FocusTurnRow(usize),
     /// Turns card double-click / Enter: open Timeline for that turn.
     SelectTurn(i64),
     /// Timeline card click: focus that event (Enter / double-click opens).
     FocusTimeline(i64),
+    /// Timeline list row (filtered index).
+    FocusTimelineRow(usize),
     SelectTimeline(i64),
     /// Notes card click: focus that note (Enter edits).
     FocusNote(String),
+    /// Notes list row (sorted index).
+    FocusNoteRow(usize),
+    /// Workflow child list row.
+    OpenWorkflowChild(usize),
     /// Follow new Timeline events to the end (live turn only).
     TimelineTail(bool),
     /// Leave full-pane event detail and return to the timeline list.
@@ -1307,6 +1315,16 @@ impl Hud {
                 self.focus_turn(ti);
                 self.scroll_turn_into_view()
             }
+            Message::FocusTurnRow(i) => {
+                let Some(&src) = self.filtered_turn_indices().get(i) else {
+                    return Task::none();
+                };
+                let Some(t) = self.displayed_turns().get(src) else {
+                    return Task::none();
+                };
+                let ti = t.turn_index;
+                self.update(Message::FocusTurn(ti))
+            }
             Message::SelectTurn(ti) => {
                 self.tab = Tab::Turns;
                 self.turns_focus = Some(ti);
@@ -1324,6 +1342,16 @@ impl Hud {
                 self.timeline_focus = Some(ix);
                 self.scroll_focus_into_view()
             }
+            Message::FocusTimelineRow(i) => {
+                let Some(&src) = self.filtered_indices().get(i) else {
+                    return Task::none();
+                };
+                let Some(ev) = self.timeline_events().get(src) else {
+                    return Task::none();
+                };
+                let ix = ev.index;
+                self.update(Message::FocusTimeline(ix))
+            }
             Message::SelectTimeline(ix) => {
                 self.timeline_focus = Some(ix);
                 if let Some((path, sid)) = self.openable_child_at(ix) {
@@ -1332,6 +1360,29 @@ impl Hud {
                 self.open_timeline_detail(ix)
             }
             Message::FocusNote(nid) => self.focus_note_card(&nid),
+            Message::FocusNoteRow(i) => {
+                let notes = self.notes_sorted();
+                let Some(n) = notes.get(i) else {
+                    return Task::none();
+                };
+                let id = n.id.clone();
+                self.focus_note_card(&id)
+            }
+            Message::OpenWorkflowChild(i) => {
+                let Some(child) = self.open_workflow_children().get(i) else {
+                    return Task::none();
+                };
+                if child.path.is_empty() {
+                    return Task::none();
+                }
+                let path = child.path.clone();
+                let sid = if child.session_id.is_empty() {
+                    child.id.clone()
+                } else {
+                    child.session_id.clone()
+                };
+                self.open_child_session(path, sid)
+            }
             Message::TimelineTail(on) => {
                 if !self.show_timeline_tail() {
                     self.timeline_follow_tail = false;

@@ -56,16 +56,6 @@ fn list_tile(tea: icedtea::theme::Tokens, selected: bool) -> iced::widget::conta
     }
 }
 
-/// Stay inside icedtea `focus::target` (4 dp grid + 2 dp ring).
-fn list_focus_pad() -> Padding {
-    Padding {
-        top: 0.0,
-        right: 6.0,
-        bottom: 0.0,
-        left: 6.0,
-    }
-}
-
 fn list_hairline(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     container(Space::new().height(1).width(Length::Fill))
         .width(Length::Fill)
@@ -672,6 +662,7 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
         1,
         selected,
         Message::ListScroll,
+        |c| Message::FocusSession(c.id),
         Some(hud.list_scroll_id()),
         tea,
         move |i| {
@@ -719,12 +710,10 @@ fn session_list_card(
                 .width(Length::Fill)
                 .style(move |_| list_tile(tea, selected)),
         )
-        .on_release(Message::FocusSession(index))
         .on_double_click(Message::SelectSession(index)),
         list_hairline(tea),
         Space::new().height(crate::live::LIST_CARD_GAP - 1.0),
     ]
-    .padding(list_focus_pad())
     .into()
 }
 
@@ -1131,6 +1120,7 @@ fn overview_run_list<'a>(
         OVERVIEW_LIST_OVERSCAN,
         focus,
         Message::OverviewScroll,
+        |c| Message::FocusOverviewRow(c.id),
         Some(hud.overview_scroll_id()),
         tea,
         move |i| {
@@ -1166,12 +1156,9 @@ fn overview_run_list<'a>(
                 .width(Length::Fill)
                 .style(move |_| list_tile(tea, selected));
             column![
-                mouse_area(card)
-                    .on_press(Message::FocusOverviewRow(i))
-                    .on_double_click(Message::OpenOverviewRow(i)),
+                mouse_area(card).on_double_click(Message::OpenOverviewRow(i)),
                 list_hairline(tea),
             ]
-            .padding(list_focus_pad())
             .into()
         },
         A11y::new(empty_title, Role::List),
@@ -1392,7 +1379,6 @@ fn card_cmds_row(
 fn closed_list_card(
     title: String,
     badges: Element<'static, Message>,
-    on_press: Message,
     on_open: Message,
     selected: bool,
     tea: icedtea::theme::Tokens,
@@ -1415,11 +1401,9 @@ fn closed_list_card(
                 .width(Length::Fill)
                 .style(move |_| list_tile(tea, selected)),
         )
-        .on_press(on_press)
         .on_double_click(on_open),
         list_hairline(tea),
     ]
-    .padding(list_focus_pad())
     .into()
 }
 
@@ -1828,7 +1812,6 @@ fn turn_list_card(
     closed_list_card(
         title,
         chips.into(),
-        Message::FocusTurn(t.turn_index),
         Message::SelectTurn(t.turn_index),
         selected,
         tea,
@@ -1883,6 +1866,7 @@ fn turns_tab(hud: &Hud) -> Element<'_, Message> {
                     .is_some_and(|t| hud.turns_focus() == Some(t.turn_index))
             }),
             Message::TurnScroll,
+            |c| Message::FocusTurnRow(c.id),
             Some(hud.turn_scroll_id()),
             tea,
             move |i| {
@@ -1932,6 +1916,7 @@ fn timeline_event_list(hud: &Hud) -> Element<'_, Message> {
                 .is_some_and(|ev| hud.timeline_focus() == Some(ev.index))
         }),
         Message::TimelineScroll,
+        |c| Message::FocusTimelineRow(c.id),
         Some(hud.timeline_scroll_id()),
         tea,
         move |i| {
@@ -1946,7 +1931,6 @@ fn timeline_event_list(hud: &Hud) -> Element<'_, Message> {
             closed_list_card(
                 event_list_title(ev),
                 event_list_heading(ev, tea),
-                Message::FocusTimeline(ix),
                 Message::SelectTimeline(ix),
                 selected,
                 tea,
@@ -2470,6 +2454,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
                 .iter()
                 .position(|n| hud.notes_focus() == Some(n.id.as_str())),
             Message::NoteScroll,
+            |c| Message::FocusNoteRow(c.id),
             Some(hud.note_scroll_id()),
             tea,
             move |i| {
@@ -2604,7 +2589,6 @@ fn note_list_card<'a>(hud: &'a Hud, n: &'a NoteRow) -> Element<'a, Message> {
             .width(Length::Fill)
             .style(move |_| icedtea::style::card(tea, selected)),
     )
-    .on_press(Message::FocusNote(n.id.clone()))
     .on_double_click(Message::OpenNote(n.id.clone()))
     .into()
 }
@@ -2809,6 +2793,7 @@ fn workflow_child_list<'a>(hud: &'a Hud, children: &'a [WorkflowChildRow]) -> El
         AGENT_OVERSCAN,
         None,
         Message::WorkflowChildScroll,
+        |c| Message::OpenWorkflowChild(c.id),
         Some(hud.wf_child_scroll_id()),
         tea,
         move |i| {
@@ -2836,25 +2821,11 @@ fn workflow_child_list<'a>(hud: &'a Hud, children: &'a [WorkflowChildRow]) -> El
                 .color(ink)
                 .width(Length::Fill);
             let body = column![title_el, badges].spacing(4).width(Length::Fill);
-            let card = container(body)
+            container(body)
                 .padding(tea.density.inset())
                 .width(Length::Fill)
-                .style(move |_| icedtea::style::card(tea, false));
-            let row: Element<'static, Message> = if openable {
-                mouse_area(card)
-                    .on_press(Message::OpenChild {
-                        path: child.path.clone(),
-                        sid: if child.session_id.is_empty() {
-                            child.id.clone()
-                        } else {
-                            child.session_id.clone()
-                        },
-                    })
-                    .into()
-            } else {
-                card.into()
-            };
-            row
+                .style(move |_| icedtea::style::card(tea, false))
+                .into()
         },
         A11y::new("Agents", Role::List),
     )
@@ -3725,6 +3696,7 @@ mod tests {
             TURNS_OVERSCAN,
             None,
             |w| w,
+            |_| window,
             Some(Id::new("hud-turns")),
             tok,
             |i| label(format!("turn {i}"), tok, A11y::new("r", Role::ListItem)),
@@ -3795,7 +3767,6 @@ mod tests {
         );
         assert!(!prod.contains("let _ = highlight"));
         assert!(prod.contains("fn list_tile"));
-        assert!(prod.contains("fn list_focus_pad"));
         assert!(prod.contains("fn session_state_from_meta"));
         assert!(prod.contains("widget::virtual_column"));
         assert!(!prod.contains("QuietColumn"));
@@ -3873,8 +3844,7 @@ mod tests {
             .expect("picker body");
         assert!(picker.contains("widget::virtual_column"));
         assert!(picker.contains("session_list_card("));
-        assert!(picker.contains("FocusSession"));
-        assert!(picker.contains("on_release"));
+        assert!(picker.contains("FocusSession(c.id)"));
         assert!(picker.contains("on_double_click"));
         assert!(picker.contains("SelectSession"));
         assert!(prod.contains(".on_double_click(on_open)"));
@@ -4048,7 +4018,7 @@ mod tests {
             .next()
             .expect("child list");
         assert!(wf_kids.contains("virtual_column"));
-        assert!(wf_kids.contains("OpenChild"));
+        assert!(wf_kids.contains("OpenWorkflowChild"));
         assert!(wf_kids.contains("\"complete\""));
         assert!(wf_kids.contains("\"failed\""));
         assert!(!wf_kids.contains("\"ok\""));
@@ -4089,7 +4059,6 @@ mod tests {
             .expect("turns card");
         assert!(turns_card.contains("status_chip("));
         assert!(turns_card.contains("closed_list_card("));
-        assert!(turns_card.contains("FocusTurn"));
         assert!(turns_card.contains("SelectTurn"));
         assert!(!turns_card.contains("tools ·"));
         let face = prod
@@ -4127,7 +4096,7 @@ mod tests {
         assert!(!kids.contains("select_bound"));
         assert!(kids.contains("if child.success { \"complete\" } else { \"failed\" }"));
         assert!(kids.contains("let openable = !child.path.is_empty()"));
-        assert!(kids.contains("Message::OpenChild"));
+        assert!(kids.contains("Message::OpenWorkflowChild"));
         let list = prod
             .split("fn overview_run_list")
             .nth(1)
@@ -4293,7 +4262,6 @@ mod tests {
             .expect("card body");
         assert!(card.contains("Wrapping::None"));
         assert!(card.contains("list_tile("));
-        assert!(card.contains("list_focus_pad()"));
         let sess = prod
             .split("fn session_list_card")
             .nth(1)
@@ -4302,7 +4270,6 @@ mod tests {
             .next()
             .expect("session card");
         assert!(sess.contains("list_tile("));
-        assert!(sess.contains("list_focus_pad()"));
         let turns = prod
             .split("fn turns_tab")
             .nth(1)
@@ -4310,6 +4277,7 @@ mod tests {
             .split("fn timeline_tab")
             .next()
             .expect("turns body");
+        assert!(turns.contains("FocusTurnRow"));
         assert!(
             !turns.contains("LIST_GAP"),
             "row height already includes the hairline"
@@ -4321,6 +4289,7 @@ mod tests {
             .split("fn timeline_tab")
             .next()
             .expect("timeline list body");
+        assert!(timeline.contains("FocusTimelineRow"));
         assert!(!timeline.contains("LIST_GAP"));
     }
 
