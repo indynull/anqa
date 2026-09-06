@@ -208,7 +208,7 @@ finished assistant, or archived. Diff prefers the last user
 
 ## pi — Pi
 
-JSONL store. Tested **0.84.4**.
+JSONL store. Tested **0.84.4**. Parse contract: [`harness-pi.md`](harness-pi.md).
 
 Default root: `~/.pi/agent/sessions/**/*.jsonl`. One file is one
 session. The first row is `type=session` (id, cwd, version) or a v4
@@ -244,7 +244,7 @@ store did not write that product data).
 | `gemini` | `$set` / `session_metadata` jsonl | tool `status` / last user | write / replace tools | `kind=subagent` files (off the list) | Timeline bookends only |
 | `grok` | `updates.jsonl` | updates tail | `rewind_points.jsonl` or `search_replace` | `subagents/` + spawn bookends | Directory files + timeline (`terminal/`, `workflows/wf_*`, `goal/state.json`, `plan.json`, `signals.json`) |
 | `opencode` | `event` / `part` rows | last part `state.status` | `summary.diffs` or edit / write | `task` + `parentID` | Timeline bookends only |
-| `pi` | leaf-path jsonl (`message`, compaction, thinking level) | `stopReason` / last `toolResult` / `errorMessage` | edit / write tools | `subagent` tasks + `details.results` | Assistant `usage`, `thinking_level_change`, `compaction`, `session_info` |
+| `pi` | leaf-path jsonl (`message`, compaction, thinking level) | `stopReason` / last `toolResult` / `errorMessage` | edit / write tools, one Diff point per turn | `subagent` tasks + `details.results` | Assistant `usage`, `thinking_level_change`, `compaction`, `session_info` |
 
 ## Filter
 
@@ -269,7 +269,7 @@ the same change.
 | `gemini` | `gemini --version` | [chatRecordingService.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingService.ts) |
 | `grok` | `grok --version` | Session directory + `updates.jsonl` |
 | `opencode` | `opencode --version` | [OpenCode server](https://opencode.ai/docs/server/) (`GET /session/:id/diff`, `summary.diffs`). Live 1.18 `event` types above. |
-| `pi` | `pi --version` | On-disk `~/.pi/agent/sessions/**/*.jsonl` |
+| `pi` | `pi --version` | [`docs/harness-pi.md`](harness-pi.md) — `session-manager.d.ts` `SessionEntry` + on-disk `~/.pi/agent/sessions/**/*.jsonl` |
 
 Probe first: `just harness-probe`. Then extend `parse_timeline` /
 `load_meta` for any new key in the same commit as the version bump.

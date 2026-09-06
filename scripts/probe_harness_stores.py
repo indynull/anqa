@@ -68,9 +68,20 @@ def _jsonl_types(paths: Iterable[Path], limit_files: int = 12) -> str:
             if not isinstance(row, dict):
                 continue
             types[str(row.get("type") or row.get("role") or "")] += 1
+            if str(row.get("type") or "") == "message":
+                msg = row.get("message")
+                if isinstance(msg, dict):
+                    role = str(msg.get("role") or "")
+                    if role:
+                        types[f"role:{role}"] += 1
+                    content = msg.get("content")
+                    if isinstance(content, list):
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type"):
+                                types[f"block:{block.get('type')}"] += 1
     if not n:
         return "no jsonl"
-    return f"{n} files types={types.most_common(12)}"
+    return f"{n} files types={types.most_common(16)}"
 
 
 def _probe_opencode(path: Path) -> str:
@@ -82,8 +93,7 @@ def _probe_opencode(path: Path) -> str:
         return f"sqlite error: {exc}"
     try:
         tables = [
-            str(row[0])
-            for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            str(row[0]) for row in con.execute("SELECT name FROM sqlite_master WHERE type='table'")
         ]
         bits: list[str] = []
         if "session" in tables:
@@ -127,9 +137,7 @@ def main() -> int:
         have = _cli_version(installed) if installed else "no mapped command"
         roots = item.default_host_roots()
         sample = _probe_store(item.id, roots)
-        print(
-            f"{item.id:12} pin={item.supported_version:20} cli={have}  {sample}"
-        )
+        print(f"{item.id:12} pin={item.supported_version:20} cli={have}  {sample}")
     return 0
 
 

@@ -42,10 +42,10 @@ def _hunk_path_for_tree(tree_path: str, files: tuple[DiffHunk, ...]) -> str:
 
 
 def _point_label(point: DiffPoint, index: int) -> str:
-    if point.source == "search_replace":
-        return t("diff-point-edits")
     if point.prompt_index is not None:
         return t("diff-point-prompt", n=point.prompt_index)
+    if point.source == "search_replace":
+        return t("diff-point-edits")
     return t("diff-point-rewind", n=index + 1)
 
 

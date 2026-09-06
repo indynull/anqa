@@ -267,27 +267,28 @@ def session_turns(ref: SessionRef, *, query: str = "") -> JsonObject:
 def session_diff(ref: SessionRef) -> JsonObject:
     """Approximate write/edit patches from the session timeline."""
     from ..session.workspace_diff import (
+        DiffPoint,
         WorkspaceDiff,
         diff_payload,
-        point_from_events,
         point_from_file_diffs,
+        points_from_events,
     )
 
     impl = adapter_for(ref)
     events: list[TraceEvent] = []
     if impl is not None:
         events = impl.parse_timeline(ref)
-    point = None
+    points: tuple[DiffPoint, ...] = ()
     if impl is not None and impl.id == "opencode":
         from .opencode import file_diffs_for
 
         native = file_diffs_for(ref)
         if native:
-            point = point_from_file_diffs(native)
-    if point is None:
-        point = point_from_events(events)
-    doc = WorkspaceDiff((point,) if point is not None else ())
-    return diff_payload(ref.session_id, doc)
+            one = point_from_file_diffs(native)
+            points = (one,) if one is not None else ()
+    if not points:
+        points = points_from_events(events)
+    return diff_payload(ref.session_id, WorkspaceDiff(points))
 
 
 __all__ = [

@@ -482,11 +482,11 @@ pub struct Hud {
 }
 
 fn diff_point_label(point: &crate::wire::DiffPointRow, index: usize) -> String {
-    if point.source == "search_replace" {
-        return "Approximate edits".into();
-    }
     if let Some(n) = point.prompt_index {
         return format!("Turn {n}");
+    }
+    if point.source == "search_replace" {
+        return "Approximate edits".into();
     }
     format!("Turn {}", index + 1)
 }

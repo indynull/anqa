@@ -312,6 +312,36 @@ def test_session_diff_uses_edit_and_write_tools(tmp_path: Path) -> None:
     unified = "\n".join(str(f["unified"]) for f in points[0]["files"])
     assert "return 2" in unified
     assert "WS1" in unified
+    assert points[0]["promptIndex"] == 0
+
+
+def test_session_diff_one_point_per_user_turn(tmp_path: Path) -> None:
+    """Diff picker lists each Pi turn that edited a file."""
+    from anqa.harness.views import session_diff
+
+    path = tmp_path / "turns.jsonl"
+    path.write_text(
+        '{"type":"session","version":3,"id":"pi-turns","timestamp":"2026-08-09T12:00:00.000Z"}\n'
+        '{"type":"message","id":"u1","parentId":"pi-turns","message":{"role":"user",'
+        '"content":[{"type":"text","text":"edit hello"}]}}\n'
+        '{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant",'
+        '"content":[{"type":"toolCall","id":"c1","name":"edit","arguments":'
+        '{"path":"/tmp/hello.py","edits":[{"oldText":"1","newText":"2"}]}}]}}\n'
+        '{"type":"message","id":"u2","parentId":"a1","message":{"role":"user",'
+        '"content":[{"type":"text","text":"add a note"}]}}\n'
+        '{"type":"message","id":"a2","parentId":"u2","message":{"role":"assistant",'
+        '"content":[{"type":"toolCall","id":"c2","name":"write","arguments":'
+        '{"path":"/tmp/NOTE.txt","content":"hi\\n"}}]}}\n',
+        encoding="utf-8",
+    )
+    ref = PiAdapter().bind_locator(path)
+    assert ref is not None
+    points = session_diff(ref)["points"]
+    assert [p["promptIndex"] for p in points] == [0, 1]
+    assert [f["path"] for f in points[0]["files"]] == ["/tmp/hello.py"]
+    assert [f["path"] for f in points[1]["files"]] == ["/tmp/NOTE.txt"]
+    assert "edit hello" in str(points[0]["prompt"])
+    assert "add a note" in str(points[1]["prompt"])
 
 
 def test_jsonl_write_is_a_list_rebuild_path() -> None:
