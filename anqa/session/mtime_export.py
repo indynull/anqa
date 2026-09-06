@@ -173,6 +173,13 @@ def _row_status_is_live(row: JsonObject) -> bool:
     return str(row.get("status") or "").strip().lower() in _LIVE_LIST_STATUS
 
 
+def _row_needs_rebuild(row: JsonObject) -> bool:
+    """True when a stamp-fresh cache row must be rebuilt from disk."""
+    if _row_status_is_live(row):
+        return True
+    return not str(row.get("title") or "").strip()
+
+
 def _dir_for_cached_row(row: JsonObject, by_key: dict[str, Path]) -> Path | None:
     path = str(row.get("path") or "").strip()
     sid = str(row.get("sessionId") or "").strip()
@@ -193,19 +200,23 @@ def _refresh_live_rows[T](
     root: Path,
     stamps: list[tuple[str, int, int, int]],
 ) -> list[JsonObject]:
-    """Remap stamp-fresh rows whose cached status is still a live label."""
+    """Remap stamp-fresh rows that are live or missing a list title."""
     out: list[JsonObject] = []
     changed = False
     for row in rows:
         target = locate(row)
-        if target is None or not _row_status_is_live(row):
+        if target is None or not _row_needs_rebuild(row):
             out.append(row)
             continue
         fresh = build_row(target)
         if fresh is None:
             out.append(row)
             continue
-        if fresh.get("status") != row.get("status") or fresh.get("outcome") != row.get("outcome"):
+        if (
+            fresh.get("status") != row.get("status")
+            or fresh.get("outcome") != row.get("outcome")
+            or fresh.get("title") != row.get("title")
+        ):
             changed = True
             out.append(fresh)
         else:
@@ -286,7 +297,7 @@ def _row_for_dir(
         if reused is None:
             reused = prev_rows.get(session_dir.name)
         if reused is not None:
-            if not _row_status_is_live(reused):
+            if not _row_needs_rebuild(reused):
                 return reused
             fresh = build_row(session_dir)
             return fresh if fresh is not None else reused

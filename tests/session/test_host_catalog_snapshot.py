@@ -104,6 +104,24 @@ def test_host_export_is_stamp_gated(tmp_path: Path) -> None:
     assert json.loads(dest.read_text(encoding="utf-8"))["version"] == PROTOCOL_VERSION
 
 
+def test_host_export_rebuilds_stamp_fresh_row_with_empty_title(
+    tmp_path: Path,
+) -> None:
+    host = tmp_path / "host"
+    _host_session(host, "019dddd-1111-2222-3333-444444444444", title="Real title")
+    dest = tmp_path / "out" / "host.json"
+    write_host_catalog_export(dest, host_root=host)
+    payload = json.loads(dest.read_text(encoding="utf-8"))
+    payload["sessions"][0]["title"] = ""
+    payload["sessions"][0]["label"] = "019dddd-1111-2222-3"
+    payload["sessions"][0]["numEvents"] = 0
+    dest.write_text(json.dumps(payload), encoding="utf-8")
+    write_host_catalog_export(dest, host_root=host)
+    rebuilt = json.loads(dest.read_text(encoding="utf-8"))
+    assert rebuilt["sessions"][0]["title"] == "Real title"
+    assert rebuilt["sessions"][0]["numEvents"] == 3
+
+
 def test_host_export_rebuilds_when_snapshot_version_changes(tmp_path: Path) -> None:
     """A snapshot written under an older protocol version must not be reused."""
     host = tmp_path / "host"
