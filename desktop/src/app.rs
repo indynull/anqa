@@ -354,6 +354,8 @@ pub struct Hud {
     timeline_follow_tail: bool,
     /// Full-pane event detail on Timeline (not an in-list expander).
     timeline_open: Option<i64>,
+    /// Previous event still painted while a step switch runs.
+    detail_leaving: Option<i64>,
     /// Overview workflow inspect when the run has no Timeline bookend.
     workflow_inspect_id: Option<String>,
     /// After a turn-boundary step, open first/last event once the page loads.
@@ -546,6 +548,7 @@ impl Default for Hud {
             timeline_focus: None,
             timeline_follow_tail: false,
             timeline_open: None,
+            detail_leaving: None,
             workflow_inspect_id: None,
             detail_turn_edge: None,
             timeline_prompt: None,
@@ -3331,13 +3334,18 @@ impl Hud {
     /// Body paint: overlay fade times in-flight page fade.
     pub fn body_tokens(&self) -> icedtea::theme::Tokens {
         let tok = self.tokens();
-        if !self.page_moving() {
+        if !self.page_moving() || matches!(self.page_role, MotionRole::Step) {
             return tok;
         }
         tok.fade(icedtea::motion::visual(
             self.page_progress(),
             self.reduced_motion,
         ))
+    }
+
+    /// Event still fading out while the next detail fades in.
+    pub fn detail_leaving(&self) -> Option<i64> {
+        self.detail_leaving
     }
 
     pub fn overlay_progress(&self) -> f32 {
@@ -4114,6 +4122,7 @@ impl Hud {
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.timeline_open = None;
+        self.detail_leaving = None;
         self.tl_return_scroll = None;
         self.tl_return_hold = false;
         self.note_return_scroll = None;
@@ -4720,15 +4729,17 @@ impl Hud {
             .page_dir
             .take()
             .unwrap_or_else(|| self.detail_open_slide(index));
-        let role = if matches!(
-            slide,
-            icedtea::motion::Slide::Up | icedtea::motion::Slide::Down
-        ) {
+        let role = if motion::event_switch_face(slide).is_some() {
             MotionRole::Step
         } else {
             motion::event_open_role(already)
         };
         self.go_page(role, PageLayer::Pane, slide);
+        self.detail_leaving = if matches!(role, MotionRole::Step) && !self.reduced_motion {
+            self.timeline_open
+        } else {
+            None
+        };
         if self.timeline_open.is_none() {
             self.tl_return_scroll = Some(self.tl_window.scroll);
         }
@@ -4748,6 +4759,7 @@ impl Hud {
         if let Some(ix) = self.timeline_open.take() {
             self.unbind_event_fields(ix);
         }
+        self.detail_leaving = None;
         self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
         self.tl_return_scroll = None;
@@ -4770,6 +4782,7 @@ impl Hud {
             self.unbind_event_fields(ix);
             self.timeline_focus = Some(ix);
         }
+        self.detail_leaving = None;
         self.workflow_inspect_id = None;
         let pos = self.timeline_focus_pos();
         if pos.is_none() {
@@ -5883,6 +5896,9 @@ impl Hud {
         self.last_tick = now;
         self.toasts.tick(dt.max(1));
         self.spin_phase = (self.spin_phase + 0.05) % 1.0;
+        if self.detail_leaving.is_some() && !self.page.is_animating(now) {
+            self.detail_leaving = None;
+        }
         self.sync_theme();
         if let Some(until) = self.leader_until {
             if Instant::now() >= until {
@@ -12873,14 +12889,23 @@ mod tests {
         let _ = hud.update(Message::SelectTimeline(10));
         assert_eq!(hud.page_role(), MotionRole::Push);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
+        assert_eq!(hud.detail_leaving(), None);
         let _ = hud.update(Message::TimelineDetailStep(1));
         assert_eq!(hud.page_role(), MotionRole::Step);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::Up);
+        assert_eq!(hud.detail_leaving(), Some(10));
+        assert!(hud.is_timeline_open(11));
         let _ = hud.update(Message::TimelineDetailStep(-1));
         assert_eq!(hud.page_role(), MotionRole::Step);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::Down);
+        assert_eq!(hud.detail_leaving(), Some(11));
+        assert!(hud.is_timeline_open(10));
+        hud.page = motion::role_animation(MotionRole::Step, true, false);
+        let _ = hud.update(Message::Tick);
+        assert_eq!(hud.detail_leaving(), None);
         let _ = hud.update(Message::CloseTimelineDetail);
         assert!(hud.timeline_open.is_none());
+        assert_eq!(hud.detail_leaving(), None);
     }
 
     #[test]

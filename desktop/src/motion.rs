@@ -16,7 +16,7 @@ pub const SIBLING_MS: u64 = 180;
 pub const PUSH_MS: u64 = 240;
 /// Hierarchical leave (event close, back to session list).
 pub const POP_MS: u64 = 200;
-/// Next / previous event cover.
+/// Next / previous event shared Y-axis.
 pub const STEP_MS: u64 = 180;
 
 /// What the operator is doing. Each job has one duration, ease, and slide rule.
@@ -100,7 +100,7 @@ pub fn tab_role(from: Tab, to: Tab) -> MotionRole {
     }
 }
 
-/// First open is push; stepping to another event is a vertical cover.
+/// First open is push; stepping to another event is a shared Y-axis.
 pub fn event_open_role(already_open: bool) -> MotionRole {
     if already_open {
         MotionRole::Step
@@ -114,7 +114,7 @@ pub fn event_close_role() -> MotionRole {
     MotionRole::Pop
 }
 
-/// Vertical cover for next / previous event.
+/// Incoming slide for next / previous event.
 pub fn event_step_slide(delta: i32) -> icedtea::motion::Slide {
     if delta > 0 {
         icedtea::motion::Slide::Up
@@ -122,6 +122,16 @@ pub fn event_step_slide(delta: i32) -> icedtea::motion::Slide {
         icedtea::motion::Slide::Down
     } else {
         icedtea::motion::Slide::None
+    }
+}
+
+/// Shared-axis face for a vertical event step, or none for push/pop slides.
+pub fn event_switch_face(slide: icedtea::motion::Slide) -> Option<icedtea::motion::SwitchFace> {
+    match slide {
+        icedtea::motion::Slide::Up | icedtea::motion::Slide::Down => {
+            Some(icedtea::motion::SwitchFace::SharedAxis(slide))
+        }
+        _ => None,
     }
 }
 
@@ -240,13 +250,26 @@ mod tests {
     }
 
     #[test]
-    fn event_open_close_and_step_map_to_push_pop_cover() {
+    fn event_open_close_and_step_map_to_push_pop_shared_axis() {
         assert_eq!(event_open_role(false), MotionRole::Push);
         assert_eq!(event_open_role(true), MotionRole::Step);
         assert_eq!(event_close_role(), MotionRole::Pop);
         assert_eq!(event_step_slide(1), icedtea::motion::Slide::Up);
         assert_eq!(event_step_slide(-1), icedtea::motion::Slide::Down);
         assert_eq!(event_step_slide(0), icedtea::motion::Slide::None);
+        assert_eq!(
+            event_switch_face(icedtea::motion::Slide::Up),
+            Some(icedtea::motion::SwitchFace::SharedAxis(
+                icedtea::motion::Slide::Up
+            ))
+        );
+        assert_eq!(
+            event_switch_face(icedtea::motion::Slide::Down),
+            Some(icedtea::motion::SwitchFace::SharedAxis(
+                icedtea::motion::Slide::Down
+            ))
+        );
+        assert_eq!(event_switch_face(icedtea::motion::Slide::End), None);
         assert_eq!(
             visual_slide(MotionRole::Push, icedtea::motion::Slide::End, false),
             icedtea::motion::Slide::End

@@ -2209,9 +2209,9 @@ dependencies = [
 
 [[package]]
 name = "icedtea"
-version = "0.16.1"
+version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "849edd35b093d5e6f04ca6442b727e2b36dfef2fe53aa235d47b677ddf8c31ba"
+checksum = "63765042ae19c3cb32160e88b3647d1b3f779275f413ad8de562eb95a2a009a7"
 dependencies = [
  "iced",
  "iced_selection",

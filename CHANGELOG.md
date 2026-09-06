@@ -111,8 +111,10 @@ Cursor (`cursor`) are registered.
   X11). On Wayland bind `anqa desktop --toggle`.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
-- The palette is on icedtea 0.16.1. Session cards highlight on release.
+- The palette is on icedtea 0.16.2. Session cards highlight on release.
   Selected list rows use a quiet wash. A focused list has no pane ring.
+  Stepping Timeline event detail (`j` / `k`) uses icedtea shared-axis
+  motion.
 - Clearing catalog or Timeline search remounts the idle list (not the
   leftover short search window).
 

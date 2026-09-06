@@ -32,7 +32,7 @@ use crate::live::{
     STATS_ROW_H, TIMELINE_OVERSCAN, TURNS_OVERSCAN, WORKFLOW_INSPECT_H,
 };
 use crate::model::{DiffContext, KindFilter, OverviewSection, SchemaField, Tab};
-use crate::motion::PageLayer;
+use crate::motion::{MotionRole, PageLayer};
 use crate::query::{highlight_query_spans, QuerySpanKind};
 use crate::typo;
 use crate::wire::{NoteRow, TimelineEvent, TurnRow, WorkflowChildRow};
@@ -590,7 +590,10 @@ fn page_body<'a>(
     // OverlayLayer still does not implement Widget::overlay, so pick lists
     // (Diff Turn, Timeline Filter) never open while this wrapper is mounted.
     // List clip state is kept by cover_stack under detail, not by this wrap.
-    if hud.page_layer() != PageLayer::Pane || !hud.page_moving() {
+    if hud.page_layer() != PageLayer::Pane
+        || !hud.page_moving()
+        || matches!(hud.page_role(), MotionRole::Step)
+    {
         return container(child)
             .width(Length::Fill)
             .height(Length::Fill)
@@ -1955,13 +1958,34 @@ fn timeline_event_list(hud: &Hud) -> Element<'_, Message> {
 
 fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
     let cover = if let Some(ix) = hud.timeline_open() {
-        Some(event_detail_pane(hud, ix))
+        Some(event_detail_cover(hud, ix))
     } else if hud.workflow_inspect_id().is_some() {
         Some(workflow_row_inspect_pane(hud))
     } else {
         None
     };
     cover_stack(timeline_event_list(hud), cover, hud.body_tokens())
+}
+
+fn event_detail_cover(hud: &Hud, ix: i64) -> Element<'_, Message> {
+    let incoming = event_detail_pane(hud, ix);
+    let Some(prev) = hud.detail_leaving() else {
+        return incoming;
+    };
+    if prev == ix || !matches!(hud.page_role(), MotionRole::Step) || !hud.page_moving() {
+        return incoming;
+    }
+    let Some(face) = crate::motion::event_switch_face(hud.page_slide()) else {
+        return incoming;
+    };
+    icedtea::motion::switch(
+        event_detail_pane(hud, prev),
+        incoming,
+        hud.page_progress(),
+        face,
+        hud.tokens(),
+        A11y::new("event step", Role::Group),
+    )
 }
 
 /// Full-area event body (double-click / Enter a list row; Esc returns to the list).
@@ -4306,7 +4330,7 @@ mod tests {
             .expect("timeline_tab body");
         assert!(tab.contains("cover_stack"));
         assert!(tab.contains("timeline_event_list"));
-        assert!(tab.contains("event_detail_pane"));
+        assert!(tab.contains("event_detail_cover"));
         assert!(!tab.contains("return event_detail_pane"));
         let notes = prod
             .split("fn notes_tab")
@@ -4330,6 +4354,19 @@ mod tests {
             "at rest the wrap must drop so pick lists can open"
         );
         assert!(page.contains("page_moving()"));
+        assert!(
+            page.contains("MotionRole::Step"),
+            "event step uses switch, not overlay cover"
+        );
+        let cover = prod
+            .split("fn event_detail_cover")
+            .nth(1)
+            .expect("event_detail_cover")
+            .split("fn event_detail_pane")
+            .next()
+            .expect("event_detail_cover body");
+        assert!(cover.contains("motion::switch"));
+        assert!(cover.contains("event_switch_face"));
     }
 
     #[test]
