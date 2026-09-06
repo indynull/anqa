@@ -713,6 +713,7 @@ fn session_list_card(
                 .width(Length::Fill)
                 .style(move |_| list_tile(tea, selected)),
         )
+        .on_press(Message::FocusSession(index))
         .on_double_click(Message::SelectSession(index)),
         list_hairline(tea),
         Space::new().height(crate::live::LIST_CARD_GAP - 1.0),
@@ -1159,7 +1160,9 @@ fn overview_run_list<'a>(
                 .width(Length::Fill)
                 .style(move |_| list_tile(tea, selected));
             column![
-                mouse_area(card).on_double_click(Message::OpenOverviewRow(i)),
+                mouse_area(card)
+                    .on_press(Message::FocusOverviewRow(i))
+                    .on_double_click(Message::OpenOverviewRow(i)),
                 list_hairline(tea),
             ]
             .into()
@@ -1382,6 +1385,7 @@ fn card_cmds_row(
 fn closed_list_card(
     title: String,
     badges: Element<'static, Message>,
+    on_press: Message,
     on_open: Message,
     selected: bool,
     tea: icedtea::theme::Tokens,
@@ -1404,6 +1408,7 @@ fn closed_list_card(
                 .width(Length::Fill)
                 .style(move |_| list_tile(tea, selected)),
         )
+        .on_press(on_press)
         .on_double_click(on_open),
         list_hairline(tea),
     ]
@@ -1815,6 +1820,7 @@ fn turn_list_card(
     closed_list_card(
         title,
         chips.into(),
+        Message::FocusTurn(t.turn_index),
         Message::SelectTurn(t.turn_index),
         selected,
         tea,
@@ -1934,6 +1940,7 @@ fn timeline_event_list(hud: &Hud) -> Element<'_, Message> {
             closed_list_card(
                 event_list_title(ev),
                 event_list_heading(ev, tea),
+                Message::FocusTimeline(ix),
                 Message::SelectTimeline(ix),
                 selected,
                 tea,
@@ -2617,6 +2624,7 @@ fn note_list_card<'a>(hud: &'a Hud, n: &'a NoteRow) -> Element<'a, Message> {
             .width(Length::Fill)
             .style(move |_| icedtea::style::card(tea, selected)),
     )
+    .on_press(Message::FocusNote(n.id.clone()))
     .on_double_click(Message::OpenNote(n.id.clone()))
     .into()
 }
@@ -3873,12 +3881,18 @@ mod tests {
         assert!(picker.contains("widget::virtual_column"));
         assert!(picker.contains("session_list_card("));
         assert!(picker.contains("FocusSession(c.id)"));
+        assert!(picker.contains("on_press(Message::FocusSession"));
         assert!(picker.contains("on_double_click"));
         assert!(picker.contains("SelectSession"));
+        assert!(prod.contains(".on_press(on_press)"));
         assert!(prod.contains(".on_double_click(on_open)"));
+        assert!(prod.contains("Message::FocusTimeline(ix)"));
         assert!(prod.contains("Message::SelectTimeline(ix)"));
+        assert!(prod.contains("Message::FocusTurn(t.turn_index)"));
         assert!(prod.contains("Message::SelectTurn(t.turn_index)"));
+        assert!(prod.contains("on_press(Message::FocusNote"));
         assert!(prod.contains("on_double_click(Message::OpenNote"));
+        assert!(prod.contains("on_press(Message::FocusOverviewRow"));
         assert!(prod.contains("on_double_click(Message::OpenOverviewRow"));
         let detail = prod
             .split("fn detail_pane")

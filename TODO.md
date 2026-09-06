@@ -17,6 +17,10 @@ work ships.
 - icedtea `VirtualClip` wheel uses `heights.at(0)` as the line step, so a
   tall first Notes card jumps a full card per notch. Notes uses
   `widget::scroll` (60 px lines) until icedtea uses `SCROLL_LINE`.
+- icedtea `virtual_column` `item_press` selects on release. A child
+  `mouse_area` with `on_double_click` captures the press, so the row
+  never arms. List tiles send focus on `on_press` until icedtea does
+  not capture that press.
 - icedtea `scroll` maps Left/Right to 24 px vertical steps while focused.
   The Notes list constructs that pane disabled so it is not a focus
   target; j/k stay next/previous note.
