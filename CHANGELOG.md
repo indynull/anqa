@@ -60,6 +60,11 @@ Cursor (`cursor`) are registered.
   present, otherwise the native timeline count.
 - Session delete (`x`) removes every store locator: directory, file, or
   database row.
+- Pi sessions follow the leaf `parentId` path. Overview and Timeline
+  read `thinking_level_change`, assistant `usage` (context tokens),
+  `compaction` / `branch_summary`, `session_info.name`, `bashExecution`,
+  and assistant `errorMessage`. File schema `version` is not the product
+  version. Tool cards render Pi `read` / `edit` / `write` / `bash`.
 
 - Every note has a `source`. Extra field keys are stored as sent.
   Notes (terminal and HUD) show the writer badge and the stored fields.

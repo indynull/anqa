@@ -47,7 +47,7 @@ def _load(ref: SessionRef) -> tuple[SessionMeta, list[TraceEvent]]:
     impl = adapter_for(ref)
     if impl is None:
         raise FileNotFoundError(f"unknown harness: {ref.harness}")
-    return impl.load_meta(ref), impl.parse_timeline(ref)
+    return impl.load_detail(ref), impl.parse_timeline(ref)
 
 
 def _child_catalog_path(ref: SessionRef, child_id: str) -> str:

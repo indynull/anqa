@@ -46,8 +46,11 @@ _STILL_REF = re.compile(
 # Action family for tool-name color (TUI + HUD). Stored ids stay snake_case.
 _TOOL_FAMILY_READ = frozenset(
     {
+        "read",
         "read_file",
         "grep",
+        "find",
+        "ls",
         "list_dir",
         "web_search",
         "read_resource",
@@ -59,6 +62,8 @@ _TOOL_FAMILY_READ = frozenset(
 _TOOL_FAMILY_WRITE = frozenset(
     {
         "search_replace",
+        "edit",
+        "write",
         "write_file",
         "create_file",
         "todo_write",
@@ -505,30 +510,55 @@ def tool_input_fields(
         if text:
             fields.append({"id": fid, "label": label, "value": text})
 
-    if tname == "search_replace":
-        path = ri.get("file_path") or ri.get("target_file") or ""
+    if tname in ("search_replace", "edit"):
+        path = ri.get("file_path") or ri.get("target_file") or ri.get("path") or ""
         _add("file_path", "File", path)
         if ri.get("old_string"):
             _add("old_string", "old_string", ri.get("old_string"))
         if ri.get("new_string"):
             _add("new_string", "new_string", ri.get("new_string"))
+        edits = ri.get("edits")
+        if isinstance(edits, list):
+            for i, item in enumerate(edits):
+                if not isinstance(item, dict):
+                    continue
+                old_t = item.get("oldText") or item.get("old_string")
+                new_t = item.get("newText") or item.get("new_string")
+                if old_t:
+                    _add(f"old_{i}", "oldText", old_t)
+                if new_t:
+                    _add(f"new_{i}", "newText", new_t)
         extra = {
             k: v
             for k, v in ri.items()
-            if k not in ("file_path", "target_file", "old_string", "new_string")
+            if k not in ("file_path", "target_file", "path", "old_string", "new_string", "edits")
         }
         if extra:
             _add("extra", "extra", json.dumps(extra, indent=2, ensure_ascii=False))
         return fields
-    if tname == "run_terminal_command":
+    if tname in ("run_terminal_command", "bash"):
         _add("command", "command", ri.get("command"))
         extra = {k: v for k, v in ri.items() if k != "command"}
         if extra:
             _add("extra", "extra", json.dumps(extra, indent=2, ensure_ascii=False))
         return fields
-    if tname == "read_file":
-        _add("target_file", "target_file", ri.get("target_file") or ri.get("file_path"))
-        extra = {k: v for k, v in ri.items() if k not in ("target_file", "file_path")}
+    if tname in ("read_file", "read"):
+        _add(
+            "target_file",
+            "target_file",
+            ri.get("target_file") or ri.get("file_path") or ri.get("path"),
+        )
+        extra = {k: v for k, v in ri.items() if k not in ("target_file", "file_path", "path")}
+        if extra:
+            _add("extra", "extra", json.dumps(extra, indent=2, ensure_ascii=False))
+        return fields
+    if tname in ("write", "write_file", "create_file"):
+        _add("file_path", "File", ri.get("path") or ri.get("file_path") or ri.get("target_file"))
+        if ri.get("content"):
+            _add("content", "content", ri.get("content"))
+        extra = {
+            k: v for k, v in ri.items() if k not in ("path", "file_path", "target_file", "content")
+        }
         if extra:
             _add("extra", "extra", json.dumps(extra, indent=2, ensure_ascii=False))
         return fields

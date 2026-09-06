@@ -583,7 +583,7 @@ LIST_STATUS_IDLE = ListStatus.IDLE
 
 @dataclass
 class SessionMeta:
-    """Metadata about a session from summary.json and signals.json."""
+    """Metadata about a session from the harness store."""
 
     session_id: str
     session_dir: Path
@@ -603,7 +603,7 @@ class SessionMeta:
     doom_loop_warnings: int = 0
     lines_added: int = 0
     lines_removed: int = 0
-    # From signals.json context meter (session snapshot, not per-turn series).
+    # Context meter from the store (Grok signals.json, Pi assistant usage, …).
     context_window_usage_pct: int | None = None
     context_tokens_used: int | None = None
     context_window_tokens: int | None = None
@@ -626,7 +626,7 @@ class SessionMeta:
     # Store last-signal fragment; :meth:`list_status_label` is the list face.
     turn_outcome: str = ""
     loop_count: int = 0
-    # From signals.json ``turnCount`` (host/live aggregates; timeline may be a tail).
+    # Store turn count when present (Grok signals.json ``turnCount``).
     turn_count: int = 0
     # Cheap catalog flags for ``has:`` (no timeline parse).
     has_workflows: bool = False
@@ -668,7 +668,7 @@ class SessionMeta:
 
     @property
     def has_context_usage(self) -> bool:
-        """True when signals.json provided context window telemetry."""
+        """True when the store provided context window telemetry."""
         return (
             self.context_window_usage_pct is not None
             or self.context_tokens_used is not None

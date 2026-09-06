@@ -23,6 +23,11 @@ pub trait Store: Send + Sync {
         Ok(ListMeta::for_session(self.id(), locator, session_id))
     }
 
+    /// Full-file metadata for the browser / overview. Defaults to [`Store::list_meta`].
+    fn detail_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        self.list_meta(locator, session_id)
+    }
+
     /// Timeline event count for the catalog Events column.
     fn event_count(&self, locator: &Path, session_id: &str) -> u32 {
         self.records(locator, session_id)

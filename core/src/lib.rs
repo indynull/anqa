@@ -113,6 +113,11 @@ pub fn list_meta(harness: &str, locator: &Path, session_id: &str) -> Result<List
     store.list_meta(locator, session_id)
 }
 
+pub fn detail_meta(harness: &str, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+    let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
+    store.detail_meta(locator, session_id)
+}
+
 fn cached_timeline(
     harness: &str,
     locator: &Path,
@@ -265,15 +270,7 @@ mod pybind {
         Ok(list)
     }
 
-    #[pyfunction]
-    fn store_list_meta<'py>(
-        py: Python<'py>,
-        harness: &str,
-        locator: &str,
-        session_id: &str,
-    ) -> PyResult<Bound<'py, PyDict>> {
-        let meta = super::list_meta(harness, Path::new(locator), session_id)
-            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+    fn meta_dict<'py>(py: Python<'py>, meta: super::ListMeta) -> PyResult<Bound<'py, PyDict>> {
         let d = PyDict::new(py);
         d.set_item("session_id", meta.session_id)?;
         d.set_item("locator", meta.locator.to_string_lossy().as_ref())?;
@@ -301,7 +298,33 @@ mod pybind {
         d.set_item("compaction_count", meta.compaction_count)?;
         d.set_item("doom_loop_warnings", meta.doom_loop_warnings)?;
         d.set_item("task_id", meta.task_id)?;
+        d.set_item("reasoning_effort", meta.reasoning_effort)?;
+        d.set_item("num_messages", meta.num_messages)?;
         Ok(d)
+    }
+
+    #[pyfunction]
+    fn store_list_meta<'py>(
+        py: Python<'py>,
+        harness: &str,
+        locator: &str,
+        session_id: &str,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let meta = super::list_meta(harness, Path::new(locator), session_id)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+        meta_dict(py, meta)
+    }
+
+    #[pyfunction]
+    fn store_detail_meta<'py>(
+        py: Python<'py>,
+        harness: &str,
+        locator: &str,
+        session_id: &str,
+    ) -> PyResult<Bound<'py, PyDict>> {
+        let meta = super::detail_meta(harness, Path::new(locator), session_id)
+            .map_err(pyo3::exceptions::PyRuntimeError::new_err)?;
+        meta_dict(py, meta)
     }
 
     #[pyfunction]
@@ -432,6 +455,7 @@ mod pybind {
         m.add_function(wrap_pyfunction!(store_ids, m)?)?;
         m.add_function(wrap_pyfunction!(store_discover, m)?)?;
         m.add_function(wrap_pyfunction!(store_list_meta, m)?)?;
+        m.add_function(wrap_pyfunction!(store_detail_meta, m)?)?;
         m.add_function(wrap_pyfunction!(store_timeline, m)?)?;
         m.add_function(wrap_pyfunction!(store_timeline_page, m)?)?;
         m.add_function(wrap_pyfunction!(store_stamp, m)?)?;

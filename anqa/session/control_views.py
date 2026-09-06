@@ -556,7 +556,7 @@ class SessionOverview:
     def uncached(cls, session_dir: Path) -> JsonObject:
         """Build overview without single-flight / result cache."""
         sd = Path(session_dir)
-        meta = require_adapter(sd).load_meta(sd)
+        meta = require_adapter(sd).load_detail(sd)
         native = cls.native_payload(sd)
         meta.num_events = json_as_int(native.get("numEvents"))
         bookends = cls.bookend_events(native)
