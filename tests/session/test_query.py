@@ -22,10 +22,12 @@ from anqa.session.query import (
     catalog_goal_count,
     catalog_has_goals,
     catalog_has_jobs,
+    catalog_has_notes,
     catalog_has_plan,
     catalog_has_schedules,
     catalog_has_subagents,
     catalog_has_tasks,
+    catalog_note_count,
     catalog_plan_count,
     catalog_presence,
     catalog_workflow_count,
@@ -693,6 +695,30 @@ def test_catalog_has_disk_entities(tmp_path) -> None:
     mode.mkdir()
     (mode / "plan_mode.json").write_text("{}", encoding="utf-8")
     assert catalog_has_plan(mode)
+
+
+def test_catalog_has_notes_reads_harness_overlay(tmp_path, monkeypatch) -> None:
+    import anqa.harness.ref as ref_mod
+    import anqa.paths as paths_mod
+    from anqa.notes import NOTES_FILENAME, NoteEntry, NotesDoc, dump_notes_toml
+
+    home = paths_mod.APP_HOME
+    monkeypatch.setattr(ref_mod, "APP_HOME", home)
+    session = tmp_path / "overlay-sid"
+    session.mkdir()
+    (session / "summary.json").write_text("{}", encoding="utf-8")
+    overlay = home / "notes" / "grok" / session.name
+    overlay.mkdir(parents=True)
+    doc = NotesDoc(session_id=session.name)
+    doc.upsert(NoteEntry.new(turn_index=1, fields={"summary": "from overlay"}, note_id="n-ov"))
+    (overlay / NOTES_FILENAME).write_text(dump_notes_toml(doc), encoding="utf-8")
+
+    assert catalog_has_notes(session)
+    assert catalog_note_count(session) == 1
+    row = catalog_presence(session, SessionMeta(session_id=session.name, session_dir=session))
+    assert row["hasNotes"] is True
+    assert row["noteCount"] == 1
+    assert row_matches_query(CatalogQueryRow.from_wire(row), "has:note")
 
 
 def test_event_and_turn_use_same_query_language() -> None:

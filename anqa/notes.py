@@ -19,6 +19,7 @@ from pathlib import Path
 from threading import Lock, RLock
 from uuid import uuid4
 
+from .harness.registry import ref_from_path
 from .models import JsonObject, as_json_object, json_as_object
 from .paths import app_home
 
@@ -365,12 +366,18 @@ def _toml_str(s: str) -> str:
     return f'"{_toml_escape_control(s.replace("\\", "\\\\").replace('"', '\\"'))}"'
 
 
-def _notes_paths(session_dir: Path) -> tuple[Path, Path]:
-    """Primary session path and config-home fallback."""
+def _notes_paths(session_dir: Path) -> tuple[Path, ...]:
+    """Primary session file, unprefixed fallback, then harness overlay."""
     session_dir = Path(session_dir)
     primary = session_dir / NOTES_FILENAME
     fallback = app_home() / "notes" / session_dir.name / NOTES_FILENAME
-    return primary, fallback
+    ref = ref_from_path(session_dir)
+    if ref is None:
+        return primary, fallback
+    overlay = ref.overlay_dir() / NOTES_FILENAME
+    if overlay in (primary, fallback):
+        return primary, fallback
+    return primary, fallback, overlay
 
 
 def _mtime(path: Path) -> float:
@@ -457,20 +464,25 @@ def _load_notes_source(session_dir: Path) -> tuple[NotesDoc, Path | None]:
     """Return the canonical document and source selected by load precedence."""
     session_dir = Path(session_dir)
     sid = session_dir.name
-    primary, fallback = _notes_paths(session_dir)
-    primary_doc = _try_load(primary, sid)
-    fallback_doc = _try_load(fallback, sid)
-    if primary_doc is None:
-        if fallback_doc is not None:
-            return fallback_doc, fallback
+    best_doc: NotesDoc | None = None
+    best_path: Path | None = None
+    best_mtime = -1.0
+    for path in _notes_paths(session_dir):
+        doc = _try_load(path, sid)
+        if doc is None:
+            continue
+        stamp = _mtime(path)
+        if best_doc is None or stamp > best_mtime:
+            best_doc = doc
+            best_path = path
+            best_mtime = stamp
+    if best_doc is None:
         return NotesDoc(schema_id=load_schema().schema_id, session_id=sid), None
-    if fallback_doc is None or _mtime(primary) >= _mtime(fallback):
-        return primary_doc, primary
-    return fallback_doc, fallback
+    return best_doc, best_path
 
 
 def load_notes(session_dir: Path) -> NotesDoc:
-    """Load notes for *session_dir*; prefer newer of primary vs fallback.
+    """Load notes for *session_dir*; prefer newer of session, fallback, overlay.
 
     :param session_dir: Session directory.
     :returns: Parsed :class:`NotesDoc` (may be empty).
@@ -552,8 +564,7 @@ def notes_mtime(session_dir: Path) -> float:
     :param session_dir: Session directory.
     :returns: Unix mtime, or ``0.0`` when no notes file exists.
     """
-    primary, fallback = _notes_paths(Path(session_dir))
-    return max(_mtime(primary), _mtime(fallback), 0.0)
+    return max(*(_mtime(path) for path in _notes_paths(Path(session_dir))), 0.0)
 
 
 def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
@@ -570,7 +581,7 @@ def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     if not doc.session_id:
         doc.session_id = session_dir.name
     text = dump_notes_toml(doc)
-    primary, fallback = _notes_paths(session_dir)
+    primary, fallback = _notes_paths(session_dir)[:2]
     try:
         skip_primary = session_dir.is_symlink() or is_under_adapter_store(session_dir)
     except OSError:
