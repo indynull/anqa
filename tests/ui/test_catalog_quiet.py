@@ -423,6 +423,113 @@ def test_quiet_poll_drains_when_owner_returns_full_page(tmp_path: Path, monkeypa
     assert app._catalog_revision == 99
 
 
+def test_clearing_control_search_restores_home_catalog(tmp_path: Path, monkeypatch) -> None:
+    """Search → open → back → next → back → clear must not keep the match slice.
+
+    A quiet poll after clear uses sinceRevision. The owner is unchanged, so
+    the home list must refetch the unfiltered page instead of keeping the
+    drained query rows.
+    """
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    sock = tmp_path / "control.sock"
+    app = AnqaApp(
+        traces_path=traces,
+        control_socket=sock,
+        control_attach_only=True,
+    )
+    all_rows = [
+        {
+            "sessionId": "a",
+            "path": str(traces / "a"),
+            "title": "Alpha",
+            "label": "Alpha",
+        },
+        {
+            "sessionId": "b",
+            "path": str(traces / "b"),
+            "title": "Beta",
+            "label": "Beta",
+        },
+        {
+            "sessionId": "c",
+            "path": str(traces / "c"),
+            "title": "Gamma",
+            "label": "Gamma",
+        },
+    ]
+    fetches: list[dict[str, object]] = []
+
+    def fake_fetch(
+        *,
+        query: str = "",
+        since_revision: int = 0,
+        drain: bool = True,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        fetches.append(
+            {
+                "query": query,
+                "since_revision": since_revision,
+                "drain": drain,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
+        if query:
+            return {
+                "sessions": [all_rows[0]],
+                "total": 3,
+                "matched": 1,
+                "revision": 4,
+                "unchanged": False,
+                "removed": [],
+                "delta": False,
+            }
+        if since_revision > 0 and not drain:
+            return {
+                "sessions": [],
+                "total": 3,
+                "matched": 3,
+                "revision": 4,
+                "unchanged": True,
+                "removed": [],
+                "delta": True,
+            }
+        return {
+            "sessions": all_rows,
+            "total": 3,
+            "matched": 3,
+            "revision": 4,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+        }
+
+    monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
+
+    gen = app._begin_sessions_load()
+    app._load_sessions_via_control(gen, quiet=False)
+    assert {meta.session_id for meta, _ in app._meta_only} == {"a", "b", "c"}
+
+    app._session_search_applied = "harness:grok AND after:30 minutes ago AND has:goal"
+    gen = app._begin_sessions_load()
+    app._load_sessions_via_control(gen, quiet=True)
+    assert {meta.session_id for meta, _ in app._meta_only} == {"a"}
+
+    app._session_search_applied = ""
+    gen = app._begin_sessions_load()
+    app._load_sessions_via_control(gen, quiet=True)
+    assert {meta.session_id for meta, _ in app._meta_only} == {"a", "b", "c"}
+    last = fetches[-1]
+    assert last["query"] == ""
+    assert last["drain"] is False
+    assert last["since_revision"] == 0
+
+
 def test_control_search_drains_the_catalog_query(tmp_path: Path, monkeypatch) -> None:
     """Home Filter must query the full catalog, not the first newest page."""
     work = tmp_path / "work"

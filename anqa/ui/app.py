@@ -320,6 +320,7 @@ class AnqaApp(App):
         self._session_search: str = ""
         self._session_search_applied: str = ""
         self._session_search_debounce: Timer | None = None
+        self._catalog_query_slice: bool = False
         self._delete_pending_paths: list[Path] | None = None
         self._delete_cursor_key: str | None = None
         self._delete_row_keys_snapshot: list[str] | None = None
@@ -1138,14 +1139,15 @@ class AnqaApp(App):
 
         Quiet/live polls send ``sinceRevision`` so an unchanged owner returns no
         rows and the table is not rebuilt. An applied Filter queries the full
-        catalog (not the first newest page).
+        catalog (not the first newest page). Clearing that Filter refetches
+        the unfiltered home page even when the owner revision is unchanged.
 
         :param quiet: Skip loaded/error notifications (live refresh / attach).
         """
         try:
             query = (self._session_search_applied or "").strip()
             since = int(self._catalog_revision or 0)
-            use_delta = bool(quiet and since > 0 and not query)
+            use_delta = bool(quiet and since > 0 and not query and not self._catalog_query_slice)
             first: dict[str, int | bool] | None = None
             if query:
                 result = self._fetch_control_catalog_sync(query=query, drain=True)
@@ -1193,6 +1195,8 @@ class AnqaApp(App):
                 rows = self._rows_from_catalog_wire(wire_rows)
             if not self._apply_session_meta_rows(gen, rows):
                 return
+            if not is_delta:
+                self._catalog_query_slice = bool(query)
             n = len(rows)
             call_ui(self, self._rebuild_session_filters)
             call_ui(self, self._populate_session_table, force=True)
