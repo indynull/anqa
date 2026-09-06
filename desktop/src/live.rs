@@ -241,6 +241,24 @@ pub fn absorb_remount_scroll(held: f32, incoming: f32) -> bool {
     incoming < 1.0 && held > 1.0
 }
 
+/// Next list index for a step key. `None` when the step would not move.
+pub fn list_step(cur: Option<usize>, n: usize, delta: i32) -> Option<usize> {
+    if n == 0 || delta == 0 {
+        return None;
+    }
+    match cur {
+        None => Some(if delta > 0 { 0 } else { n - 1 }),
+        Some(i) => {
+            let next = (i as i32 + delta).clamp(0, n as i32 - 1) as usize;
+            if next == i {
+                None
+            } else {
+                Some(next)
+            }
+        }
+    }
+}
+
 /// Pin row top to the viewport top (expand / jump).
 pub fn list_scroll_to_top(heights: &[f32], active: usize, view_h: f32) -> f32 {
     let top: f32 = heights.iter().take(active).copied().sum();
@@ -1644,6 +1662,18 @@ mod tests {
             list_focus_after_scroll(Some(19), scroll, view_h, &heights),
             Some(10)
         );
+    }
+
+    #[test]
+    fn list_step_stops_at_the_ends() {
+        assert_eq!(list_step(None, 4, 1), Some(0));
+        assert_eq!(list_step(None, 4, -1), Some(3));
+        assert_eq!(list_step(Some(0), 4, 1), Some(1));
+        assert_eq!(list_step(Some(2), 4, 5), Some(3));
+        assert_eq!(list_step(Some(3), 4, 1), None);
+        assert_eq!(list_step(Some(0), 4, -1), None);
+        assert_eq!(list_step(Some(0), 0, 1), None);
+        assert_eq!(list_step(Some(1), 4, 0), None);
     }
 
     #[test]

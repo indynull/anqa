@@ -2470,28 +2470,32 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     let list: Element<'_, Message> = if notes.is_empty() {
         kit::status_empty("No notes", "Add a note to keep what you found.", tea)
     } else {
-        let list = icedtea::widget::virtual_column(
-            hud.note_heights(),
-            hud.note_window(),
-            OVERVIEW_LIST_OVERSCAN,
-            notes
-                .iter()
-                .position(|n| hud.notes_focus() == Some(n.id.as_str())),
-            Message::NoteScroll,
-            |c| Message::FocusNoteRow(c.id),
-            Some(hud.note_scroll_id()),
+        let mut cards = column![];
+        for (i, n) in notes.iter().enumerate() {
+            let h = hud.note_heights().get(i).copied().unwrap_or(1.0).max(1.0);
+            cards = cards.push(
+                container(note_list_card(hud, n))
+                    .width(Length::Fill)
+                    .height(h)
+                    .clip(true),
+            );
+        }
+        // App keys own j/k. A focused icedtea scroll maps Left/Right
+        // to 24 px vertical steps — skip that by not focusing the pane.
+        let list = icedtea::widget::scroll(
+            cards.into(),
             tea,
-            move |i| {
-                let Some(n) = notes.get(i) else {
-                    return Space::new().height(0).into();
-                };
-                column![
-                    note_list_card(hud, n),
-                    Space::new().height(crate::live::LIST_GAP),
-                ]
-                .into()
-            },
-            A11y::new("Notes", Role::List),
+            A11y::new("Notes", Role::List).with_disabled(true),
+            false,
+            Some(hud.note_scroll_id()),
+            Some(|y| {
+                Message::NoteScroll(icedtea::collection::VisibleWindow {
+                    start: 0,
+                    end: 0,
+                    scroll: y,
+                    viewport: 0.0,
+                })
+            }),
         );
         container(list)
             .width(Length::Fill)
@@ -4211,12 +4215,21 @@ mod tests {
     }
 
     #[test]
-    fn notes_tab_virtualizes_cards() {
+    fn notes_tab_paints_cards_in_a_pixel_scroller() {
         let src = include_str!("view.rs");
         let body = src.split("fn notes_tab").nth(1).unwrap_or("");
-        assert!(body.contains("widget::virtual_column"));
+        assert!(body.contains("widget::scroll("));
+        assert!(body.contains("with_disabled(true)"));
         assert!(body.contains("Message::NoteScroll"));
         assert!(body.contains("note_list_card"));
+        assert!(
+            !body
+                .split("fn notes_compose_form")
+                .next()
+                .unwrap_or("")
+                .contains("virtual_column"),
+            "Notes list is a pixel scroller; virtual_column wheel steps the first card height"
+        );
         assert!(body.contains("Length::Fill"));
         assert!(body.contains("composing_note"));
         assert!(body.contains("StartNote"));
@@ -4340,7 +4353,8 @@ mod tests {
             .next()
             .expect("notes_tab body");
         assert!(notes.contains("cover_stack"));
-        assert!(notes.contains("virtual_column"));
+        assert!(notes.contains("widget::scroll"));
+        assert!(!notes.contains("virtual_column"));
         let page = prod
             .split("fn page_body")
             .nth(1)

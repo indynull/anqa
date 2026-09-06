@@ -27,11 +27,11 @@ use crate::live::{
     absorb_remount_scroll, card_marks_from_overview, clamp_scroll, diff_hunk_scroll_y,
     filter_timeline_indices, filter_turn_indices, find_session_index, first_list_fetch,
     is_partial_list_page, is_soft_notes_save_error, last_timeline_page_offset,
-    list_focus_after_scroll, list_scroll_to_cover, list_window_at, locators_equal,
-    merge_catalog_rows, merge_timeline_by_index, next_list_offset, next_spotlight_limit,
-    note_card_height, note_field_input_key, note_form_fields, note_text_input_keys,
-    notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta, plan_tick,
-    previous_timeline_page, row_matches_keep, scroll_after_prepend, session_card_height,
+    list_focus_after_scroll, list_scroll_to_cover, list_scroll_to_top, list_step, list_window_at,
+    locators_equal, merge_catalog_rows, merge_timeline_by_index, next_list_offset,
+    next_spotlight_limit, note_card_height, note_field_input_key, note_form_fields,
+    note_text_input_keys, notes_schema_fields, patch_catalog_delta, patch_list_row_from_meta,
+    plan_tick, previous_timeline_page, row_matches_keep, scroll_after_prepend, session_card_height,
     session_needs_live_poll, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
     should_page_recent, spotlight_recent, timeline_coverage_complete, timeline_page_next,
     timeline_range_label, timeline_window_start, trim_timeline_buffer, wants_periodic_poll,
@@ -1594,14 +1594,20 @@ impl Hud {
                 Task::none()
             }
             Message::NoteScroll(win) => {
+                let mut incoming = win;
+                if incoming.viewport < 1.0 {
+                    incoming.viewport = (self.window_size.height - 140.0)
+                        .max(self.note_window.viewport)
+                        .max(1.0);
+                }
                 if self.note_heights.is_empty() {
                     self.note_window =
-                        icedtea::collection::VisibleWindow::new(win.viewport.max(1.0));
+                        icedtea::collection::VisibleWindow::new(incoming.viewport.max(1.0));
                     self.note_return_hold = false;
                 } else if !take_returned_clip(
                     &mut self.note_return_hold,
                     &mut self.note_window,
-                    win,
+                    incoming,
                 ) {
                     return reissue_clip_scroll(self.note_scroll_id.clone(), &self.note_window);
                 }
@@ -3251,10 +3257,7 @@ impl Hud {
             return Task::none();
         };
         self.notes_focus = Some(id.to_string());
-        let view_h = self.note_window.viewport.max(1.0);
-        let y = list_scroll_to_cover(&self.note_heights, pos, self.note_window.scroll, view_h);
-        self.note_window.scroll = y;
-        Task::none()
+        self.snap_notes_to(pos)
     }
 
     fn nav_notes_step(&mut self, delta: i32) -> Task<Message> {
@@ -3265,21 +3268,28 @@ impl Hud {
         if ids.is_empty() {
             return Task::none();
         }
+        if self.note_heights.len() != ids.len() {
+            self.rebuild_note_heights();
+        }
         let cur = self
             .notes_focus
             .as_ref()
             .and_then(|id| ids.iter().position(|x| x == id));
-        let next = match cur {
-            None if delta > 0 => 0,
-            None => ids.len() - 1,
-            Some(i) if delta > 0 => (i + 1).min(ids.len() - 1),
-            Some(i) => i.saturating_sub(1),
+        let Some(next) = list_step(cur, ids.len(), delta) else {
+            return Task::none();
         };
         self.notes_focus = Some(ids[next].clone());
-        let view_h = self.note_window.viewport.max(1.0);
-        let y = list_scroll_to_cover(&self.note_heights, next, self.note_window.scroll, view_h);
-        self.note_window.scroll = y;
-        Task::none()
+        self.snap_notes_to(next)
+    }
+
+    fn snap_notes_to(&mut self, pos: usize) -> Task<Message> {
+        let view_h = (self.window_size.height - 140.0)
+            .max(self.note_window.viewport)
+            .max(1.0);
+        self.note_window.viewport = view_h;
+        let y = list_scroll_to_top(&self.note_heights, pos, view_h);
+        self.note_return_hold = y > 1.0;
+        apply_clip_scroll(self.note_scroll_id.clone(), &mut self.note_window, y)
     }
 
     fn open_focused_note(&mut self) -> Task<Message> {
@@ -6348,15 +6358,9 @@ impl Hud {
                 if files.is_empty() {
                     return Task::none();
                 }
-                let i = files
-                    .iter()
-                    .position(|f| f.path == self.diff_file)
-                    .unwrap_or(0);
-                let n = files.len();
-                let nxt = if delta > 0 {
-                    (i + 1).min(n - 1)
-                } else {
-                    i.saturating_sub(1)
+                let i = files.iter().position(|f| f.path == self.diff_file);
+                let Some(nxt) = list_step(i, files.len(), delta) else {
+                    return Task::none();
                 };
                 self.diff_file = files[nxt].path.clone();
                 self.refresh_diff_hit();
@@ -6444,13 +6448,14 @@ impl Hud {
         }
         if delta > 0 && self.active + 1 == n && self.grow_recent() {
             let grown = self.sessions().len();
-            if self.active + 1 < grown {
-                self.set_active(self.active + 1);
+            if let Some(next) = list_step(Some(self.active), grown, delta) {
+                self.set_active(next);
                 return self.ensure_active_visible();
             }
         }
-        let i = self.active as i32;
-        let next = (i + delta).rem_euclid(n as i32) as usize;
+        let Some(next) = list_step(Some(self.active), self.sessions().len(), delta) else {
+            return Task::none();
+        };
         self.set_active(next);
         self.ensure_active_visible()
     }
@@ -6478,15 +6483,8 @@ impl Hud {
         if n == 0 {
             return Task::none();
         }
-        let pos = match self.tasks_focus {
-            None => {
-                if delta > 0 {
-                    0
-                } else {
-                    n - 1
-                }
-            }
-            Some(p) => (p as i32 + delta).rem_euclid(n as i32) as usize,
+        let Some(pos) = list_step(self.tasks_focus, n, delta) else {
+            return Task::none();
         };
         self.tasks_focus = Some(pos);
         self.overview_row_armed = false;
@@ -6498,15 +6496,8 @@ impl Hud {
         if n == 0 {
             return Task::none();
         }
-        let pos = match self.stats_selection.primary() {
-            None => {
-                if delta > 0 {
-                    0
-                } else {
-                    n - 1
-                }
-            }
-            Some(p) => (p as i32 + delta).rem_euclid(n as i32) as usize,
+        let Some(pos) = list_step(self.stats_selection.primary(), n, delta) else {
+            return Task::none();
         };
         self.stats_selection = icedtea::collection::Selection::Single(pos);
         self.stats_cursor = Some((pos, 1));
@@ -6582,15 +6573,8 @@ impl Hud {
                     .is_some_and(|t| t.turn_index == ti)
             })
         });
-        let pos = match cur {
-            None => {
-                if delta > 0 {
-                    0
-                } else {
-                    idxs.len() - 1
-                }
-            }
-            Some(p) => (p as i32 + delta).rem_euclid(idxs.len() as i32) as usize,
+        let Some(pos) = list_step(cur, idxs.len(), delta) else {
+            return Task::none();
         };
         let src = idxs[pos];
         if let Some(t) = self.displayed_turns().get(src) {
@@ -6606,15 +6590,8 @@ impl Hud {
             return Task::none();
         }
         let cur = self.timeline_focus_pos();
-        let pos = match cur {
-            None => {
-                if delta > 0 {
-                    0
-                } else {
-                    n - 1
-                }
-            }
-            Some(p) => (p as i32 + delta).rem_euclid(n as i32) as usize,
+        let Some(pos) = list_step(cur, n, delta) else {
+            return Task::none();
         };
         let src = self.tl_filter[pos];
         if let Some(ev) = self.timeline.get(src) {
@@ -8582,6 +8559,70 @@ mod tests {
     }
 
     #[test]
+    fn notes_j_selects_the_next_note() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = Hud {
+            overview: Some(Overview {
+                notes: crate::wire::NotesBlock {
+                    notes: vec![
+                        crate::wire::NoteRow {
+                            id: "n-a".into(),
+                            fields: serde_json::json!({"summary": "one"}),
+                            ..crate::wire::NoteRow::default()
+                        },
+                        crate::wire::NoteRow {
+                            id: "n-b".into(),
+                            fields: serde_json::json!({"summary": "two"}),
+                            ..crate::wire::NoteRow::default()
+                        },
+                    ],
+                    ..crate::wire::NotesBlock::default()
+                },
+                ..Overview::default()
+            }),
+            tab: Tab::Notes,
+            ..Hud::default()
+        };
+        hud.rebuild_note_heights();
+        hud.note_heights = vec![800.0, 80.0];
+        hud.note_window.viewport = 200.0;
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), Some("n-a"));
+        assert!(
+            hud.note_window.scroll.abs() < 1.0,
+            "first note snaps to its top, got {}",
+            hud.note_window.scroll
+        );
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), Some("n-b"));
+        let want = list_scroll_to_top(&hud.note_heights, 1, hud.note_window.viewport);
+        assert!(
+            (hud.note_window.scroll - want).abs() < 1.0,
+            "j snaps to the next note top, got {} want {want}",
+            hud.note_window.scroll
+        );
+        let held = hud.note_window.scroll;
+        let _ = hud.update(Message::NoteScroll(icedtea::collection::VisibleWindow {
+            start: 0,
+            end: 0,
+            scroll: 0.0,
+            viewport: 0.0,
+        }));
+        assert!(
+            (hud.note_window.scroll - held).abs() < 1.0,
+            "a remount 0 must not undo the snap, got {}",
+            hud.note_window.scroll
+        );
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert_eq!(hud.notes_focus(), Some("n-b"));
+        assert!(
+            (hud.note_window.scroll - held).abs() < 1.0,
+            "down on the last note must not resnap, got {}",
+            hud.note_window.scroll
+        );
+    }
+
+    #[test]
     fn notes_compose_does_not_steal_j_into_the_list() {
         use iced::keyboard::{Key, Modifiers};
         let mut hud = Hud {
@@ -8889,6 +8930,12 @@ mod tests {
         assert_eq!(hud.selected_sid().as_deref(), Some("b")); // newest first
         let _ = hud.nav_step(1);
         assert_eq!(hud.selected_sid().as_deref(), Some("a"));
+        let _ = hud.nav_step(1);
+        assert_eq!(
+            hud.selected_sid().as_deref(),
+            Some("a"),
+            "down on the last row must not wrap"
+        );
     }
 
     #[test]

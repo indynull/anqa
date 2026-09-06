@@ -14,6 +14,12 @@ work ships.
   renders fences cleanly.
 - icedtea `widget::switch` is a full-width form row. Timeline Tail
   composes `meta` + `toggler` until icedtea has a compact toolbar switch.
+- icedtea `VirtualClip` wheel uses `heights.at(0)` as the line step, so a
+  tall first Notes card jumps a full card per notch. Notes uses
+  `widget::scroll` (60 px lines) until icedtea uses `SCROLL_LINE`.
+- icedtea `scroll` maps Left/Right to 24 px vertical steps while focused.
+  The Notes list constructs that pane disabled so it is not a focus
+  target; j/k stay next/previous note.
 - icedtea `VirtualClip` first layout records `cover` and leaves scroll at 0.
   A remounted Timeline / Notes list therefore paints the top until
   `operation::scroll_to` lands. HUD keeps those lists mounted under
