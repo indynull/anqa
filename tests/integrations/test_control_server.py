@@ -537,6 +537,58 @@ async def test_control_notes_upsert_requires_source_and_keeps_foreign_fields(
 
 
 @pytest.mark.asyncio
+async def test_notes_upsert_refreshes_catalog_and_overview(tmp_path: Path) -> None:
+    from anqa.control import daemon as daemon_mod
+    from anqa.control.client import ControlClient
+    from anqa.session.catalog import SessionCatalogCache
+    from anqa.session.control_views import SessionOverview
+
+    traces = tmp_path / "work" / "runs" / "traces"
+    traces.mkdir(parents=True)
+    session_dir = traces / "noted-sess"
+    _write_session(session_dir)
+    sock = _short_sock("notes-cat.sock")
+    server = daemon_mod.build_domain_control_server(
+        socket_path=sock,
+        traces_path=traces,
+        include_host=False,
+    )
+    cache = getattr(server, "_catalog_cache", None)
+    assert isinstance(cache, SessionCatalogCache)
+    await server.start()
+    try:
+        cache.get(force=True)
+        SessionOverview._cache.clear()
+        client = ControlClient(sock, client_name="notes-cat", timeout=20)
+        await client.initialize()
+        before = await client.session_list(query=session_dir.name)
+        assert before["matched"] == 1
+        assert before["sessions"][0]["hasNotes"] is False
+        ov = await client.session_overview(session_dir.name)
+        assert ov["notes"]["count"] == 0
+        listed = await client.notes_list(session_dir.name)
+        saved = await client.notes_upsert(
+            session_dir.name,
+            {
+                "id": "n-ctl",
+                "turnIndex": 0,
+                "source": "session-notes",
+                "fields": {"summary": "through control"},
+            },
+            expected_revision=str(listed.get("revision") or ""),
+        )
+        assert saved["notes"][0]["id"] == "n-ctl"
+        noted = await client.session_list(query="has:note")
+        assert any(row.get("sessionId") == session_dir.name for row in noted["sessions"])
+        ov2 = await client.session_overview(session_dir.name)
+        assert ov2["notes"]["count"] == 1
+        assert ov2["notes"]["notes"][0]["id"] == "n-ctl"
+        await client.close()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
 async def test_control_server_accepts_content_type_first_framing(tmp_path: Path) -> None:
     control = import_module("anqa.control.server")
     server = control.ControlServer(socket_path=_short_sock("ctype.sock"))

@@ -243,6 +243,35 @@ def test_build_session_overview_notes_include_source_and_foreign_fields(
     assert row["fields"]["title"] == "unchecked return"
 
 
+def test_overview_rebuilds_when_cached_notes_revision_disagrees(tmp_path: Path) -> None:
+    """A mid-build notes write must not pin an empty card list forever."""
+    from anqa.notes import NoteEntry, notes_snapshot, upsert_note
+    from anqa.session.control_views import SessionOverview, build_session_overview
+
+    sd = _write_session(tmp_path, "sess-ov-stale-notes")
+    SessionOverview._cache.clear()
+    empty = SessionOverview.uncached(sd)
+    assert empty["notes"]["count"] == 0
+    before = notes_snapshot(sd)
+    upsert_note(
+        sd,
+        NoteEntry.new(
+            turn_index=0,
+            source="mf-plugin",
+            fields={"summary": "filed after overview"},
+            note_id="n-late",
+        ),
+        expected_revision=before.revision,
+    )
+    stamp = SessionOverview.input_stamp(sd)
+    SessionOverview._cache[SessionOverview.cache_key(sd)] = (stamp, empty)
+    ov = build_session_overview(sd)
+    assert ov["notes"]["count"] == 1
+    assert ov["notes"]["notes"][0]["id"] == "n-late"
+    SessionOverview.drop(sd)
+    assert SessionOverview.cache_key(sd) not in SessionOverview._cache
+
+
 def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     from anqa.session.control_views import build_session_overview
 

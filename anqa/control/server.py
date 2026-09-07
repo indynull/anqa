@@ -26,7 +26,7 @@ from ..session.access import LocalSessionAccess, notes_snapshot_mapping
 
 # Re-export catalog filter for existing importers (TUI, tests).
 from ..session.access import filter_session_catalog as filter_session_catalog
-from ..session.control_views import warm_timeline_search
+from ..session.control_views import SessionOverview, warm_timeline_search
 from ..session.document import SUPPORTED_FORMATS
 from .contract import (
     MIN_PROTOCOL_VERSION,
@@ -925,15 +925,7 @@ class ControlServer:
         )
         if self._notes_changed is not None:
             await self._notes_changed(session)
-        after_send.append(
-            (
-                NOTIFY_NOTES_CHANGED,
-                {
-                    "sessionId": session.name,
-                    "revision": json_as_str(result.get("revision")),
-                },
-            )
-        )
+        self._after_notes_write(session, result, after_send)
         return result
 
     @_rpc("notes/delete")
@@ -955,6 +947,27 @@ class ControlServer:
         )
         if self._notes_changed is not None:
             await self._notes_changed(session)
+        self._after_notes_write(session, result, after_send)
+        return result
+
+    def _after_notes_write(
+        self,
+        session: Path,
+        result: JsonObject,
+        after_send: list[tuple[str, JsonObject]],
+    ) -> None:
+        """Drop overview cache, refresh ``has:note``, notify list clients."""
+        SessionOverview.drop(session)
+        list_changed = True
+        cache = getattr(self, "_catalog_cache", None)
+        refresh = getattr(cache, "refresh_rows", None)
+        if callable(refresh):
+            try:
+                _rows, changed = refresh([session])
+            except OSError:
+                logger.debug("catalog refresh after notes write failed", exc_info=True)
+            else:
+                list_changed = bool(changed.get(session.name, True))
         after_send.append(
             (
                 NOTIFY_NOTES_CHANGED,
@@ -964,7 +977,12 @@ class ControlServer:
                 },
             )
         )
-        return result
+        after_send.append(
+            (
+                NOTIFY_SESSION_CHANGED,
+                {"sessionId": session.name, "listChanged": list_changed},
+            )
+        )
 
     async def notify(self, method: str, params: JsonObject) -> None:
         """Publish a notification to connected editor clients.

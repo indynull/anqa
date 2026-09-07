@@ -423,6 +423,21 @@ class SessionOverview:
         except OSError:
             return str(sd.expanduser())
 
+    @classmethod
+    def drop(cls, session_dir: Path) -> None:
+        """Forget a cached overview so the next build rereads notes."""
+        try:
+            del cls._cache[cls.cache_key(session_dir)]
+        except KeyError:
+            pass
+
+    @staticmethod
+    def _notes_revision(payload: JsonObject) -> str:
+        block = payload.get("notes")
+        if not isinstance(block, dict):
+            return ""
+        return str(block.get("revision") or "")
+
     @staticmethod
     def notes_schema() -> JsonObject:
         """Operator notes schema for HUD/TUI forms (same shape as notes/list)."""
@@ -608,7 +623,11 @@ class SessionOverview:
         while True:
             stamp = cls.input_stamp(sd)
             cached = cls._cache.get(cache_key)
-            if cached is not None and cached[0] == stamp:
+            if (
+                cached is not None
+                and cached[0] == stamp
+                and cls._notes_revision(cached[1]) == stamp[1]
+            ):
                 return cached[1]
 
             owner = False
@@ -627,7 +646,10 @@ class SessionOverview:
                 out = cls.uncached(sd)
                 # Stamp after build so a growth mid-flight forces a recheck.
                 done_stamp = cls.input_stamp(sd)
-                cls._cache[cache_key] = (done_stamp, out)
+                # Notes can land during the walk. Do not pin an empty card
+                # list under the post-write revision.
+                if cls._notes_revision(out) == done_stamp[1]:
+                    cls._cache[cache_key] = (done_stamp, out)
                 if not fut.done():
                     fut.set_result(out)
                 return out
