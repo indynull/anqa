@@ -50,13 +50,6 @@ class SessionRef:
         """Operator notes: ``~/.anqa/notes/<harness>/<session_id>/``."""
         return APP_HOME / "notes" / self.harness / self.session_id
 
-    def overlay_notes_mtime_ns(self) -> int:
-        """mtime of the overlay notes file, or 0 when it is missing."""
-        try:
-            return int((self.overlay_dir() / "operator_notes.toml").stat().st_mtime_ns)
-        except OSError:
-            return 0
-
     @classmethod
     def path(cls, ref: SessionRef | Path | str) -> Path:
         """Directory or file path from a ref, path, or string."""

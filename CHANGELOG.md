@@ -47,6 +47,9 @@ Cursor (`cursor`) are registered.
 - Catalog, Timeline, and Turns share a query language (`is:`, `has:`,
   counts, `tool:`, `turn:`, `duration:`, `AND` / `OR`). Tokens live in
   the published control schema. Search applies after 0.28s idle.
+  `has:note` follows overlay notes and `operator_notes.toml` beside
+  the session. A notes write through control rebuilds that catalog
+  row and the open overview.
 - Diff uses rewind snapshots when the store wrote them. Otherwise it
   rebuilds per-path patches from write and edit tool calls on the
   timeline (every shipped adapter). OpenCode also uses

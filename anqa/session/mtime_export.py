@@ -3,7 +3,7 @@
 Host ``session/list`` rows are built by :func:`session_catalog_row` (summary,
 signals, and the 64 KiB updates tail). Reuse a cached row when that
 session's stamp (path + ``summary.json`` / ``signals.json`` /
-``updates.jsonl`` mtimes plus overlay notes) is unchanged. Serve and
+``updates.jsonl`` mtimes plus notes files) is unchanged. Serve and
 ``anqa export-host`` share this file.
 """
 
@@ -16,8 +16,8 @@ from pathlib import Path
 
 from ..control.contract import PROTOCOL_VERSION
 from ..harness.ref import SessionRef
-from ..harness.registry import ref_from_path
 from ..models import JsonObject, ListStatus, as_json_object
+from ..notes import notes_source_mtime_ns
 from ..paths import cache_dir
 from .sources import default_catalog_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
@@ -41,13 +41,11 @@ def _mtime_ns(path: Path) -> int:
 
 def host_source_stamp(session_dir: Path) -> tuple[str, int, int, int]:
     """Identity for one host session: path plus summary/signals/updates/notes."""
-    ref = ref_from_path(session_dir)
-    overlay = ref.overlay_notes_mtime_ns() if ref is not None else 0
     return (
         str(session_dir),
         _mtime_ns(session_dir / _STAMP_FILES[0]),
         _mtime_ns(session_dir / _STAMP_FILES[1]),
-        _mtime_ns(session_dir / _STAMP_FILES[2]) + overlay,
+        _mtime_ns(session_dir / _STAMP_FILES[2]) + notes_source_mtime_ns(session_dir),
     )
 
 
@@ -66,7 +64,7 @@ def ref_source_stamp(ref: SessionRef) -> tuple[str, int, int, int]:
             key,
             _mtime_ns(loc / _STAMP_FILES[0]),
             _mtime_ns(loc / _STAMP_FILES[1]),
-            _mtime_ns(loc / _STAMP_FILES[2]) + ref.overlay_notes_mtime_ns(),
+            _mtime_ns(loc / _STAMP_FILES[2]) + notes_source_mtime_ns(loc),
         )
     impl = adapter(ref.harness)
     if impl is not None:

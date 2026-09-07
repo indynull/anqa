@@ -567,6 +567,17 @@ def notes_mtime(session_dir: Path) -> float:
     return max(*(_mtime(path) for path in _notes_paths(Path(session_dir))), 0.0)
 
 
+def notes_source_mtime_ns(session_dir: Path) -> int:
+    """Sum of mtimes for every notes file this session can load."""
+    total = 0
+    for path in _notes_paths(Path(session_dir)):
+        try:
+            total += int(path.stat().st_mtime_ns)
+        except OSError:
+            continue
+    return total
+
+
 def save_notes(session_dir: Path, doc: NotesDoc) -> Path:
     """Write *doc* beside the session; fall back under ``~/.anqa/notes``.
 

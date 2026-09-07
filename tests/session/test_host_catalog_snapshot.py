@@ -252,6 +252,26 @@ def test_host_export_rebuilds_when_overlay_notes_appear(tmp_path: Path, monkeypa
     assert rebuilt["sessions"][0]["noteCount"] == 1
 
 
+def test_host_export_rebuilds_when_session_notes_appear(tmp_path: Path) -> None:
+    from anqa.notes import NOTES_FILENAME, NoteEntry, NotesDoc, dump_notes_toml
+
+    host = tmp_path / "host"
+    session = _host_session(host, "019note-sess-1111-2222-3333-444444444444", title="Sess")
+    dest = tmp_path / "out" / "host.json"
+    write_host_catalog_export(dest, host_root=host)
+    first = json.loads(dest.read_text(encoding="utf-8"))
+    assert first["sessions"][0]["hasNotes"] is False
+
+    doc = NotesDoc(session_id=session.name)
+    doc.upsert(NoteEntry.new(turn_index=1, fields={"summary": "in session"}, note_id="n-sd"))
+    (session / NOTES_FILENAME).write_text(dump_notes_toml(doc), encoding="utf-8")
+
+    write_host_catalog_export(dest, host_root=host)
+    rebuilt = json.loads(dest.read_text(encoding="utf-8"))
+    assert rebuilt["sessions"][0]["hasNotes"] is True
+    assert rebuilt["sessions"][0]["noteCount"] == 1
+
+
 def test_list_session_catalog_events_growth_does_not_open_events(
     tmp_path: Path, monkeypatch
 ) -> None:
