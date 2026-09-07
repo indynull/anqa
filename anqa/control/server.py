@@ -475,10 +475,15 @@ class ControlServer:
         logger.debug("control client connect id=%s", peer)
         try:
             await self._read_client(reader, writer)
+        except asyncio.CancelledError:
+            raise
+        except (KeyboardInterrupt, SystemExit):
+            raise
         except BaseException as exc:
-            if not _peer_gone(exc):
-                raise
-            logger.debug("control client reset id=%s", peer)
+            if _peer_gone(exc):
+                logger.debug("control client reset id=%s", peer)
+            else:
+                logger.exception("control client failed id=%s", peer)
         finally:
             self._writers.discard(writer)
             self._writer_framing.pop(writer, None)

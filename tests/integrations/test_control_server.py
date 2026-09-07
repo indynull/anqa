@@ -725,6 +725,45 @@ async def test_control_server_returns_jsonrpc_errors(tmp_path: Path) -> None:
         await server.close()
 
 
+@pytest.mark.asyncio
+async def test_store_fault_returns_error_and_owner_stays_up(tmp_path: Path) -> None:
+    """A store exception is a JSON-RPC error. The owner keeps accepting."""
+    from unittest.mock import patch
+
+    from anqa.control import daemon as daemon_mod
+    from anqa.control.client import ControlClient
+    from anqa.control.server import ControlError
+
+    traces = tmp_path / "work" / "runs" / "traces"
+    traces.mkdir(parents=True)
+    session_dir = traces / "store-fault"
+    _write_session(session_dir)
+    sock = _short_sock("store-fault.sock")
+    server = daemon_mod.build_domain_control_server(
+        socket_path=sock,
+        traces_path=traces,
+        include_host=False,
+    )
+    await server.start()
+    try:
+        client = ControlClient(sock, client_name="store-fault", timeout=10)
+        await client.initialize()
+        with patch.object(
+            server._access,
+            "session_overview",
+            side_effect=RuntimeError("store exploded"),
+        ):
+            with pytest.raises(ControlError) as caught:
+                await client.session_overview(session_dir.name)
+        assert caught.value.code == -32603
+        assert "store exploded" in caught.value.message
+        listed = await client.session_list()
+        assert isinstance(listed.get("sessions"), list)
+        await client.close()
+    finally:
+        await server.close()
+
+
 def test_peer_gone_treats_reset_and_groups_as_disconnect() -> None:
     """RST and exception groups of RST are a gone peer, not a server fault."""
     from anqa.control.server import _peer_gone

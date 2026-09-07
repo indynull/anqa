@@ -101,6 +101,40 @@ def test_load_meta_and_timeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
     assert tool.raw_input.as_str("command") == "echo PROBE_OK"
 
 
+def test_opencode_wal_readers_do_not_abort(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Concurrent WAL readers must not abort the process (SIGBUS)."""
+    import subprocess
+    import sys
+
+    db = _install_store(tmp_path, monkeypatch)
+    con = sqlite3.connect(db)
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+        con.commit()
+    finally:
+        con.close()
+    script = (
+        "from concurrent.futures import ThreadPoolExecutor\n"
+        "from anqa.core import list_meta, timeline_events\n"
+        f"db = {str(db)!r}\n"
+        "sid = 'ses_probe'\n"
+        "def once(_i):\n"
+        "    timeline_events('opencode', db, sid)\n"
+        "    list_meta('opencode', db, sid)\n"
+        "with ThreadPoolExecutor(8) as pool:\n"
+        "    list(pool.map(once, range(32)))\n"
+        "print('ok')\n"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", script],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr or proc.stdout
+    assert "ok" in proc.stdout
+
+
 def test_delete_session_removes_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _install_store(tmp_path, monkeypatch)
     stats = delete_session_dirs([Path("opencode:ses_probe")])

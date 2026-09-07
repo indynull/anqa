@@ -37,6 +37,7 @@ def _connect(db: Path) -> sqlite3.Connection:
     path = Path(db).expanduser()
     con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
+    con.execute("PRAGMA mmap_size=0")
     return con
 
 

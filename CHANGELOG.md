@@ -158,7 +158,9 @@ Cursor (`cursor`) are registered.
   plane file). Catalog ``has:goal`` / ``has:plan`` follow the goal
   and plan files on disk.
 - Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
-  free. Quitting a client leaves anqad running.
+  free. Quitting a client leaves anqad running. A store fault
+  (OpenCode sqlite, a native panic) returns a control error and
+  stays in the owner log. The owner process does not exit.
 - `protocolVersion` is semver (`1.0.0`), independent of the product
   version. Same major keeps a live owner; a major bump is the only
   incompatible handshake change.

@@ -10,7 +10,9 @@ pub mod text;
 pub mod walk;
 
 use event::{Event, FileStamp, ListMeta, SessionLocator};
+use std::any::Any;
 use std::collections::{HashMap, VecDeque};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Mutex};
 
@@ -103,19 +105,42 @@ fn cache_key(harness: &str, locator: &Path, session_id: &str) -> String {
     format!("{harness}\0{}\0{session_id}", locator.display())
 }
 
+fn panic_text(payload: Box<dyn Any + Send>) -> String {
+    if let Some(s) = payload.downcast_ref::<&str>() {
+        (*s).to_string()
+    } else if let Some(s) = payload.downcast_ref::<String>() {
+        s.clone()
+    } else {
+        "unknown panic".into()
+    }
+}
+
+fn store_catch<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+    match catch_unwind(AssertUnwindSafe(f)) {
+        Ok(ok) => ok,
+        Err(payload) => Err(format!("store panic: {}", panic_text(payload))),
+    }
+}
+
 pub fn discover(harness: &str, roots: &[PathBuf]) -> Result<Vec<SessionLocator>, String> {
-    let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
-    Ok(store.discover(roots))
+    store_catch(|| {
+        let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
+        Ok(store.discover(roots))
+    })
 }
 
 pub fn list_meta(harness: &str, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-    let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
-    store.list_meta(locator, session_id)
+    store_catch(|| {
+        let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
+        store.list_meta(locator, session_id)
+    })
 }
 
 pub fn detail_meta(harness: &str, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
-    let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
-    store.detail_meta(locator, session_id)
+    store_catch(|| {
+        let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
+        store.detail_meta(locator, session_id)
+    })
 }
 
 fn cached_timeline(
@@ -155,7 +180,7 @@ fn page_slice(events: &[Event], offset: usize, limit: usize) -> Vec<Event> {
 }
 
 pub fn timeline(harness: &str, locator: &Path, session_id: &str) -> Result<Vec<Event>, String> {
-    Ok(cached_timeline(harness, locator, session_id)?.1.to_vec())
+    store_catch(|| Ok(cached_timeline(harness, locator, session_id)?.1.to_vec()))
 }
 
 pub fn timeline_page(
@@ -165,13 +190,17 @@ pub fn timeline_page(
     offset: usize,
     limit: usize,
 ) -> Result<(Vec<Event>, usize), String> {
-    let evs = cached_timeline(harness, locator, session_id)?.1;
-    Ok((page_slice(&evs, offset, limit), evs.len()))
+    store_catch(|| {
+        let evs = cached_timeline(harness, locator, session_id)?.1;
+        Ok((page_slice(&evs, offset, limit), evs.len()))
+    })
 }
 
 pub fn stamp(harness: &str, locator: &Path, session_id: &str) -> Result<FileStamp, String> {
-    let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
-    Ok(store.stamp(locator, session_id))
+    store_catch(|| {
+        let store = store::by_id(harness).ok_or_else(|| format!("unknown harness: {harness}"))?;
+        Ok(store.stamp(locator, session_id))
+    })
 }
 
 pub fn overview(
@@ -179,8 +208,10 @@ pub fn overview(
     locator: &Path,
     session_id: &str,
 ) -> Result<overview::Overview, String> {
-    let evs = cached_timeline(harness, locator, session_id)?.1;
-    Ok(overview::Overview::from_events(&evs))
+    store_catch(|| {
+        let evs = cached_timeline(harness, locator, session_id)?.1;
+        Ok(overview::Overview::from_events(&evs))
+    })
 }
 
 #[cfg(feature = "extension-module")]

@@ -231,7 +231,12 @@ struct EventCursor {
     records: Vec<Record>,
 }
 
-static EVENT_CURSORS: LazyLock<Mutex<HashMap<(PathBuf, String), EventCursor>>> =
+struct OpenDb {
+    con: Connection,
+    cursors: HashMap<String, EventCursor>,
+}
+
+static OPEN_DBS: LazyLock<Mutex<HashMap<PathBuf, OpenDb>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn encode_stamp(n: i64) -> FileStamp {
@@ -325,16 +330,51 @@ impl EventCursor {
     }
 }
 
-fn cached_event_records(
-    locator: &Path,
-    session_id: &str,
-    con: &Connection,
-) -> Result<Vec<Record>, String> {
-    let key = (locator.to_path_buf(), session_id.to_string());
-    let mut guard = EVENT_CURSORS.lock().unwrap_or_else(|err| err.into_inner());
-    let cursor = guard.entry(key).or_default();
-    cursor.sync(con, session_id)?;
+fn open_ro(path: &Path) -> Result<Connection, String> {
+    let con = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| e.to_string())?;
+    // mmap + short-lived WAL connections SIGBUS when another reader
+    // remaps the -shm file. Keep mmap off; reuse the connection below.
+    con.pragma_update(None, "mmap_size", 0u64)
+        .map_err(|e| e.to_string())?;
+    Ok(con)
+}
+
+fn with_open_db<T>(
+    path: &Path,
+    f: impl FnOnce(&mut OpenDb) -> Result<T, String>,
+) -> Result<T, String> {
+    let mut guard = OPEN_DBS.lock().unwrap_or_else(|err| err.into_inner());
+    if !guard.contains_key(path) {
+        let con = open_ro(path)?;
+        guard.insert(
+            path.to_path_buf(),
+            OpenDb {
+                con,
+                cursors: HashMap::new(),
+            },
+        );
+    }
+    let db = guard
+        .get_mut(path)
+        .ok_or_else(|| format!("opencode db cache missing: {}", path.display()))?;
+    f(db)
+}
+
+fn cached_event_records(db: &mut OpenDb, session_id: &str) -> Result<Vec<Record>, String> {
+    let cursor = db.cursors.entry(session_id.to_string()).or_default();
+    cursor.sync(&db.con, session_id)?;
     Ok(cursor.records.clone())
+}
+
+fn records_from_db(db: &mut OpenDb, session_id: &str) -> Result<Vec<Record>, String> {
+    if table_exists(&db.con, "event") && max_seq(&db.con, session_id).is_some() {
+        return cached_event_records(db, session_id);
+    }
+    if table_exists(&db.con, "message") {
+        return message_records(&db.con, session_id);
+    }
+    Ok(Vec::new())
 }
 
 fn message_records(con: &Connection, session_id: &str) -> Result<Vec<Record>, String> {
@@ -388,11 +428,6 @@ fn message_records(con: &Connection, session_id: &str) -> Result<Vec<Record>, St
         }
     }
     Ok(out)
-}
-
-fn open_ro(path: &Path) -> Result<Connection, String> {
-    Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| e.to_string())
 }
 
 fn table_exists(con: &Connection, name: &str) -> bool {
@@ -774,51 +809,54 @@ impl Store for OpenCode {
             if !db.is_file() {
                 continue;
             }
-            let Ok(con) = open_ro(&db) else { continue };
-            if table_exists(&con, "event") {
-                if let Ok(mut stmt) =
-                    con.prepare("SELECT data FROM event WHERE type LIKE 'session.created%'")
-                {
-                    if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
-                        for raw in rows.flatten() {
-                            let data: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-                            let info = data.get("info").cloned().unwrap_or(Value::Null);
-                            let sid = text::field_str(&info, "id");
-                            let parent = text::field_str(&info, "parentID");
-                            if sid.is_empty() || !(parent.is_empty() || parent == "None") {
-                                continue;
+            let _ = with_open_db(&db, |held| {
+                if table_exists(&held.con, "event") {
+                    if let Ok(mut stmt) = held
+                        .con
+                        .prepare("SELECT data FROM event WHERE type LIKE 'session.created%'")
+                    {
+                        if let Ok(rows) = stmt.query_map([], |row| row.get::<_, String>(0)) {
+                            for raw in rows.flatten() {
+                                let data: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+                                let info = data.get("info").cloned().unwrap_or(Value::Null);
+                                let sid = text::field_str(&info, "id");
+                                let parent = text::field_str(&info, "parentID");
+                                if sid.is_empty() || !(parent.is_empty() || parent == "None") {
+                                    continue;
+                                }
+                                out.push(SessionLocator {
+                                    harness: "opencode".into(),
+                                    session_id: sid,
+                                    locator: db.clone(),
+                                    cwd: text::field_str(&info, "directory"),
+                                });
                             }
-                            out.push(SessionLocator {
-                                harness: "opencode".into(),
-                                session_id: sid,
-                                locator: db.clone(),
-                                cwd: text::field_str(&info, "directory"),
-                            });
                         }
                     }
                 }
-            }
-            if table_exists(&con, "session") {
-                if let Ok(mut stmt) = con.prepare(
-                    "SELECT id, directory FROM session WHERE parent_id IS NULL OR parent_id = ''",
-                ) {
-                    if let Ok(rows) = stmt.query_map([], |row| {
-                        Ok((
-                            row.get::<_, String>(0)?,
-                            row.get::<_, String>(1).unwrap_or_default(),
-                        ))
-                    }) {
-                        for row in rows.flatten() {
-                            out.push(SessionLocator {
-                                harness: "opencode".into(),
-                                session_id: row.0,
-                                locator: db.clone(),
-                                cwd: row.1,
-                            });
+                if table_exists(&held.con, "session") {
+                    if let Ok(mut stmt) = held.con.prepare(
+                        "SELECT id, directory FROM session WHERE parent_id IS NULL OR parent_id = ''",
+                    ) {
+                        if let Ok(rows) = stmt.query_map([], |row| {
+                            Ok((
+                                row.get::<_, String>(0)?,
+                                row.get::<_, String>(1).unwrap_or_default(),
+                            ))
+                        }) {
+                            for row in rows.flatten() {
+                                out.push(SessionLocator {
+                                    harness: "opencode".into(),
+                                    session_id: row.0,
+                                    locator: db.clone(),
+                                    cwd: row.1,
+                                });
+                            }
                         }
                     }
                 }
-            }
+                Ok(())
+            });
         }
         out
     }
@@ -827,14 +865,7 @@ impl Store for OpenCode {
         if !locator.is_file() {
             return Err(format!("opencode session not found: {session_id}"));
         }
-        let con = open_ro(locator)?;
-        if table_exists(&con, "event") && max_seq(&con, session_id).is_some() {
-            return cached_event_records(locator, session_id, &con);
-        }
-        if table_exists(&con, "message") {
-            return message_records(&con, session_id);
-        }
-        Ok(Vec::new())
+        with_open_db(locator, |db| records_from_db(db, session_id))
     }
 
     fn events(&self, records: &[Record]) -> Vec<Event> {
@@ -846,41 +877,43 @@ impl Store for OpenCode {
     }
 
     fn stamp(&self, locator: &Path, session_id: &str) -> FileStamp {
-        let Ok(con) = open_ro(locator) else {
-            return (0.0, 0, 0, 0);
-        };
-        if table_exists(&con, "event") {
-            if let Some(seq) = max_seq(&con, session_id) {
-                return encode_stamp(seq);
+        with_open_db(locator, |db| {
+            if table_exists(&db.con, "event") {
+                if let Some(seq) = max_seq(&db.con, session_id) {
+                    return Ok(encode_stamp(seq));
+                }
             }
-        }
-        encode_stamp(max_row_time(&con, session_id))
+            Ok(encode_stamp(max_row_time(&db.con, session_id)))
+        })
+        .unwrap_or((0.0, 0, 0, 0))
     }
 
     fn list_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
         if !locator.is_file() {
             return Err(format!("opencode session not found: {session_id}"));
         }
-        let con = open_ro(locator)?;
-        let mut meta = ListMeta::for_session(self.id(), locator, session_id);
-        let mut found = fill_session_row(&con, session_id, &mut meta);
-        if table_exists(&con, "event") {
-            if let Some(info) = last_session_info(&con, session_id) {
-                found = true;
-                if meta.title.is_empty() {
-                    apply_session_info(&mut meta, &info);
+        with_open_db(locator, |db| {
+            let mut meta = ListMeta::for_session(self.id(), locator, session_id);
+            let mut found = fill_session_row(&db.con, session_id, &mut meta);
+            if table_exists(&db.con, "event") {
+                if let Some(info) = last_session_info(&db.con, session_id) {
+                    found = true;
+                    if meta.title.is_empty() {
+                        apply_session_info(&mut meta, &info);
+                    }
                 }
             }
-        }
-        if !found {
-            return Err(format!("opencode session not found: {session_id}"));
-        }
-        fill_turn_outcome(&con, session_id, &mut meta);
-        let kids = child_count(&con, session_id);
-        meta.subagent_count = kids;
-        meta.has_subagents = kids > 0;
-        meta.num_events = self.event_count(locator, session_id);
-        Ok(meta)
+            if !found {
+                return Err(format!("opencode session not found: {session_id}"));
+            }
+            fill_turn_outcome(&db.con, session_id, &mut meta);
+            let kids = child_count(&db.con, session_id);
+            meta.subagent_count = kids;
+            meta.has_subagents = kids > 0;
+            let recs = records_from_db(db, session_id)?;
+            meta.num_events = self.events(&recs).len() as u32;
+            Ok(meta)
+        })
     }
 }
 
@@ -1121,6 +1154,54 @@ mod tests {
         );
 
         let _ = std::fs::remove_file(&db);
+        let _ = std::fs::remove_dir(db.parent().unwrap());
+    }
+
+    #[test]
+    fn opencode_wal_readers_survive_checkpoint() {
+        let db = temp_db("wal-readers");
+        let con = open_rw(&db);
+        create_event_table(&con);
+        con.pragma_update(None, "journal_mode", "WAL").unwrap();
+        let (info, part) = user_message("ses_w", "msg_w", "wal body");
+        insert_event(
+            &con,
+            1,
+            "ses_w",
+            0,
+            "session.created.1",
+            r#"{"info":{"id":"ses_w"}}"#,
+        );
+        insert_event(&con, 2, "ses_w", 1, "message.updated.1", &info);
+        insert_event(&con, 3, "ses_w", 2, "message.part.updated.1", &part);
+        drop(con);
+
+        let db = std::sync::Arc::new(db);
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut joins = Vec::new();
+        for _ in 0..4 {
+            let db = std::sync::Arc::clone(&db);
+            let stop = std::sync::Arc::clone(&stop);
+            joins.push(std::thread::spawn(move || {
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = crate::timeline("opencode", &db, "ses_w");
+                    let _ = crate::stamp("opencode", &db, "ses_w");
+                    let _ = crate::list_meta("opencode", &db, "ses_w");
+                }
+            }));
+        }
+        let writer = open_rw(&db);
+        for _ in 0..20 {
+            let _ = writer.pragma_update(None, "wal_checkpoint", "TRUNCATE");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        for join in joins {
+            join.join().expect("opencode reader thread panicked");
+        }
+        let events = crate::timeline("opencode", &db, "ses_w").unwrap();
+        assert_eq!(user_texts(&events), ["wal body"]);
+        let _ = std::fs::remove_file(&*db);
         let _ = std::fs::remove_dir(db.parent().unwrap());
     }
 }
