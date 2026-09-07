@@ -57,6 +57,9 @@ Cursor (`cursor`) are registered.
 - Codex Diff lists one `Turn N` point per user turn. The rust parser
   stamps `turn_started` on each user message.
 - Codex Overview reads last `event_msg` `info.last_token_usage.total_tokens`.
+- Format contracts: `docs/harness-codex.md`, `docs/harness-gemini.md`,
+  `docs/harness-cursor.md`, `docs/harness-copilot.md`,
+  `docs/harness-opencode.md`, `docs/harness-antigravity.md`.
 - Diff uses rewind snapshots when the store wrote them. Otherwise it
   rebuilds per-path patches from write and edit tool calls on the
   timeline (every shipped adapter). OpenCode also uses

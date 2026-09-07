@@ -264,14 +264,14 @@ the same change.
 
 | Id | Product command | Published source |
 |----|-----------------|------------------|
-| `antigravity` | product about string | On-disk `conversations/*.db` + `brain/*/…/transcript.jsonl` |
+| `antigravity` | product about string | [`docs/harness-antigravity.md`](harness-antigravity.md) |
 | `claude` | `claude --version` | [`docs/harness-claude.md`](harness-claude.md) — jsonl `user` / `assistant` + `parentUuid` |
-| `copilot` | `copilot --version` | On-disk `session-store.db` + `session-state/<id>/events.jsonl` |
-| `codex` | `codex --version` | [apply-patch parser.rs](https://github.com/openai/codex/blob/main/codex-rs/apply-patch/src/parser.rs) |
-| `cursor` | `cursor-agent --version` | On-disk `agent-transcripts` + `chats/*/<id>/meta.json` |
-| `gemini` | `gemini --version` | [chatRecordingService.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingService.ts) |
+| `copilot` | `copilot --version` | [`docs/harness-copilot.md`](harness-copilot.md) |
+| `codex` | `codex --version` | [`docs/harness-codex.md`](harness-codex.md) |
+| `cursor` | `cursor-agent --version` | [`docs/harness-cursor.md`](harness-cursor.md) |
+| `gemini` | `gemini --version` | [`docs/harness-gemini.md`](harness-gemini.md) |
 | `grok` | `grok --version` | Session directory + `updates.jsonl` |
-| `opencode` | `opencode --version` | [OpenCode server](https://opencode.ai/docs/server/) (`GET /session/:id/diff`, `summary.diffs`). Live 1.18 `event` types above. |
+| `opencode` | `opencode --version` | [`docs/harness-opencode.md`](harness-opencode.md) |
 | `pi` | `pi --version` | [`docs/harness-pi.md`](harness-pi.md) — `session-manager.d.ts` `SessionEntry` + on-disk `~/.pi/agent/sessions/**/*.jsonl` |
 
 Probe first: `just harness-probe`. Then extend `parse_timeline` /
