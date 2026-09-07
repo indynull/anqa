@@ -2235,7 +2235,7 @@ impl Hud {
     }
 
     fn view(&self, _window: window::Id) -> Element<'_, Message> {
-        view::layout(self)
+        icedtea::focus::cycle(view::layout(self), None)
     }
 }
 
@@ -4039,33 +4039,6 @@ impl Hud {
         };
         self.note_form_ix = Some(0);
         operation::focus(id)
-    }
-
-    fn focus_note_form(&mut self, reverse: bool) -> Task<Message> {
-        let ids = self.note_form_ids();
-        let n = ids.len();
-        if n == 0 {
-            return Task::none();
-        }
-        let next = match self.note_form_ix {
-            None => {
-                if reverse {
-                    n - 1
-                } else {
-                    0
-                }
-            }
-            Some(i) => {
-                let i = i.min(n - 1);
-                if reverse {
-                    (i + n - 1) % n
-                } else {
-                    (i + 1) % n
-                }
-            }
-        };
-        self.note_form_ix = Some(next);
-        operation::focus(ids[next].clone())
     }
 
     fn cycle_browse_pane(&mut self, reverse: bool) -> Task<Message> {
@@ -6487,18 +6460,13 @@ impl Hud {
                 return self.update(Message::PaneDigit(n));
             }
         }
-        if matches!(key, Key::Named(Named::Tab)) && !modifiers.alt() && !modifiers.logo() {
-            if self.browse_mode()
-                && self.tab == Tab::Notes
-                && self.composing_note()
-                && !modifiers.control()
-                && !modifiers.command()
-            {
-                return self.focus_note_form(modifiers.shift());
-            }
-            if self.browse_mode() {
-                return self.cycle_browse_pane(modifiers.shift());
-            }
+        if matches!(key, Key::Named(Named::Tab))
+            && (modifiers.control() || modifiers.command())
+            && !modifiers.alt()
+            && !modifiers.logo()
+            && self.browse_mode()
+        {
+            return self.cycle_browse_pane(modifiers.shift());
         }
         if self.typing_notes {
             return Task::none();
@@ -6703,7 +6671,7 @@ impl Hud {
                 let src = self.tl_filter[pos];
                 if let Some(ev) = self.timeline.get(src) {
                     self.timeline_focus = Some(ev.index);
-                    return Task::batch([self.scroll_focus_into_view(), self.leave_search()]);
+                    return Task::batch([self.scroll_focus_into_view(), Self::blur_text_inputs()]);
                 }
                 Task::none()
             }
@@ -6870,7 +6838,7 @@ impl Hud {
         let src = self.tl_filter[pos];
         if let Some(ev) = self.timeline.get(src) {
             self.timeline_focus = Some(ev.index);
-            return Task::batch([self.scroll_focus_into_view(), self.leave_search()]);
+            return Task::batch([self.scroll_focus_into_view(), Self::blur_text_inputs()]);
         }
         Task::none()
     }
@@ -7330,13 +7298,14 @@ fn is_list_nav_key(kev: &keyboard::Event) -> bool {
         || overlay.matches("list.up", "k", key, *modifiers)
 }
 
-fn is_tab_key(kev: &keyboard::Event) -> bool {
+fn is_pane_tab(kev: &keyboard::Event) -> bool {
     matches!(
         kev,
         keyboard::Event::KeyPressed {
             key: Key::Named(Named::Tab),
+            modifiers,
             ..
-        }
+        } if modifiers.control() || modifiers.command()
     )
 }
 
@@ -7361,9 +7330,9 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
             // List arrows must work while Search sessions is focused (Spotlight).
             // Single-line fields capture them; we still want palette navigation.
             // j/k and arrows while Spotlight search is focused. / stays
-            // with a focused field. Tab reaches the HUD so Notes can walk
-            // form fields and other panes can still cycle.
-            if is_list_nav_key(kev) || is_tab_key(kev) {
+            // with a focused field. Bare Tab stays with icedtea focus cycle.
+            // Ctrl+Tab still changes panes when a field has captured it.
+            if is_list_nav_key(kev) || is_pane_tab(kev) {
                 return Some(Message::RawEvent(event));
             }
             // A focused field captures Escape. Leave the field first so the
@@ -8753,8 +8722,22 @@ mod tests {
             repeat: false,
         });
         assert!(
-            interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_some(),
-            "Tab reaches the HUD so Notes can walk form fields"
+            interesting_hud_event(tab, event::Status::Captured, window::Id::unique()).is_none(),
+            "bare Tab stays with icedtea focus cycle"
+        );
+        let ctrl_tab = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Named(Named::Tab),
+            modified_key: Key::Named(Named::Tab),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Tab),
+            location: iced::keyboard::Location::Standard,
+            modifiers: KeyMods::CTRL,
+            text: None,
+            repeat: false,
+        });
+        assert!(
+            interesting_hud_event(ctrl_tab, event::Status::Captured, window::Id::unique())
+                .is_some(),
+            "Ctrl+Tab still changes panes while a field is focused"
         );
         let slash = Event::Keyboard(keyboard::Event::KeyPressed {
             key: Key::Character("/".into()),
@@ -8787,7 +8770,7 @@ mod tests {
     }
 
     #[test]
-    fn notes_tab_walks_form_fields_while_composing() {
+    fn notes_ctrl_tab_changes_pane_while_composing() {
         use iced::keyboard::{Key, Modifiers};
         let mut hud = Hud {
             overview: Some(Overview::default()),
@@ -8799,11 +8782,8 @@ mod tests {
             event: String::new(),
         });
         assert!(hud.composing_note());
-        assert_eq!(hud.note_form_ix, Some(0));
         let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
-        assert_eq!(hud.note_form_ix, Some(1));
-        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::SHIFT);
-        assert_eq!(hud.note_form_ix, Some(0));
+        assert_eq!(hud.tab, Tab::Notes, "bare Tab stays on the form");
         let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::CTRL);
         assert_eq!(hud.tab, Tab::Overview);
     }
@@ -9161,7 +9141,6 @@ mod tests {
 
     #[test]
     fn open_note_walks_extra_fields_from_the_stored_bag() {
-        use iced::keyboard::{Key, Modifiers};
         let mut hud = Hud {
             overview: Some(Overview {
                 notes: crate::wire::NotesBlock {
@@ -9192,10 +9171,6 @@ mod tests {
             vec!["summary", "detail", "custom_key"]
         );
         assert_eq!(hud.note_form_ix, Some(0));
-        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
-        assert_eq!(hud.note_form_ix, Some(1));
-        let _ = hud.on_key(Key::Named(Named::Tab), Modifiers::empty());
-        assert_eq!(hud.note_form_ix, Some(2));
         assert_eq!(
             crate::live::note_text_input_keys(&hud.note_form_schema())[2],
             crate::live::note_field_input_key("custom_key")
@@ -9726,6 +9701,7 @@ mod tests {
         assert!(!desk.window.exit_on_close_request);
         let src = include_str!("app.rs");
         assert!(src.contains("bootstrap_with_catalog"));
+        assert!(src.contains("icedtea::focus::cycle"));
         assert!(src.contains(".open()"));
         assert!(src.contains("retarget"));
         assert!(src.contains("typo::install"));
@@ -10373,14 +10349,14 @@ mod tests {
     }
 
     #[test]
-    fn timeline_list_nav_unfocuses_chrome() {
+    fn timeline_list_nav_does_not_arm_search_blur() {
         use iced::keyboard::{Key, Modifiers};
         let mut hud = two_turn_timeline();
         hud.blur_after = 0;
         let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
-        assert!(
-            hud.blur_after > 0,
-            "j/k must drop Turn / Filter focus so list Enter opens the event"
+        assert_eq!(
+            hud.blur_after, 0,
+            "list nav must not remount-focus Search sessions"
         );
     }
 

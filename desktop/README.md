@@ -52,7 +52,8 @@ hidden overlay does not poll; control notifies still refresh the
 catalog and fire desktop notifications. Press **?** for the shortcut
 cheatsheet and the same catalog search tokens as the terminal app.
 Shared keys match the terminal app (`?` `Esc` `/` `y` `j`/`k`
-`h`/`l` for Timeline turns and Diff turns, `N`); panes are Tab and Ctrl+1–5 except on Notes, where Tab walks the note fields. `u` or the logo leaves an
+`h`/`l` for Timeline turns and Diff turns, `N`); Tab moves between
+focusable controls; Ctrl+Tab or Ctrl+1–5 change panes. `u` or the logo leaves an
 open session for the session list (`Esc` still hides, or steps out of
 Timeline detail / a child first). `g` on Turns opens Timeline for that
 turn. Enter opens (or edits the focused note). An open event has a

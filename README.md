@@ -211,9 +211,8 @@ still opens a full-width event.
 
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / Command+C
 or Control+C / `j` `k`
-/ `h` `l` (previous / next Timeline turn) / `N`. HUD panes are Tab
-and Ctrl+1–5 except on Notes, where Tab walks the note fields and
-Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
+/ `h` `l` (previous / next Timeline turn) / `N`. Tab moves between
+focusable controls. Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
 `]` jumps to the next turn that still matches Filter, only while All
 turns is selected. `u` or the logo leaves the
 open session for the session list. `g` on Turns opens Timeline for that

@@ -111,8 +111,7 @@ def test_reserved_keys_are_not_remappable() -> None:
     assert action_by_id("help.toggle").remappable is False
     assert action_by_id("overlay.hide").remappable is False
     assert action_by_id("session.open").remappable is False
-    assert action_by_id("pane.next").remappable is False
-    assert action_by_id("pane.prev").remappable is False
+    assert action_by_id("help.dismiss").remappable is False
     for row in ACTIONS:
         if chord_is_reserved(row.default):
             assert row.remappable is False, row.id

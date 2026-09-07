@@ -85,14 +85,14 @@ const ACTIONS: &[CatalogRow] = &[
     CatalogRow {
         id: "pane.next",
         scope: "browser",
-        default: "tab",
-        remappable: false,
+        default: "ctrl+tab",
+        remappable: true,
     },
     CatalogRow {
         id: "pane.prev",
         scope: "browser",
-        default: "shift+tab",
-        remappable: false,
+        default: "ctrl+shift+tab",
+        remappable: true,
     },
     CatalogRow {
         id: "pane.1",

@@ -29,7 +29,7 @@ pub struct KeyScope {
     pub leader_armed: bool,
     /// A note card is the list highlight.
     pub note_focused: bool,
-    /// HUD Notes compose form is open (Tab walks fields; j is not list motion).
+    /// HUD Notes compose form is open (j is not list motion).
     pub notes_composing: bool,
 }
 
@@ -205,12 +205,8 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
         &mut table,
         overlay,
         "pane.next",
-        if scope.tab == Tab::Notes {
-            "Field"
-        } else {
-            "Panes"
-        },
-        "tab",
+        "Panes",
+        "ctrl+tab",
         Message::Noop,
     );
     if scope.timeline_detail {
@@ -398,24 +394,16 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             &mut table,
             overlay,
             "pane.next",
-            if scope.tab == Tab::Notes {
-                "Next field"
-            } else {
-                "Next pane"
-            },
-            "tab",
+            "Next pane",
+            "ctrl+tab",
             Message::Noop,
         );
         push(
             &mut table,
             overlay,
             "pane.prev",
-            if scope.tab == Tab::Notes {
-                "Previous field"
-            } else {
-                "Previous pane"
-            },
-            "shift+tab",
+            "Previous pane",
+            "ctrl+shift+tab",
             Message::Noop,
         );
     }
@@ -605,7 +593,7 @@ mod tests {
             notes_composing: false,
         });
         let blob = browse.footer_hints().join("  ·  ");
-        assert!(blob.contains("tab panes"));
+        assert!(blob.contains("ctrl+tab panes"));
         let notes = footer_table(KeyScope {
             browse: true,
             help_open: false,
@@ -621,8 +609,7 @@ mod tests {
             notes_composing: false,
         });
         let notes_blob = notes.footer_hints().join("  ·  ");
-        assert!(notes_blob.contains("tab field"), "{notes_blob}");
-        assert!(!notes_blob.contains("tab panes"), "{notes_blob}");
+        assert!(notes_blob.contains("ctrl+tab panes"), "{notes_blob}");
         assert!(notes_blob.contains("j down"), "{notes_blob}");
         assert!(!notes_blob.contains("edit"), "{notes_blob}");
         let notes_hi = footer_table(KeyScope {

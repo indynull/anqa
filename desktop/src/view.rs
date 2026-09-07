@@ -2856,12 +2856,15 @@ fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
         };
         actions = actions.push(del_btn);
     }
-    icedtea::widget::group_box(
-        if editing { "Edit note" } else { "Add note" },
-        form.push(actions).into(),
-        tea,
-        icedtea::widget::CardFace::Outlined,
-        A11y::new("Note form", Role::Group),
+    icedtea::focus::cycle(
+        icedtea::widget::group_box(
+            if editing { "Edit note" } else { "Add note" },
+            form.push(actions).into(),
+            tea,
+            icedtea::widget::CardFace::Outlined,
+            A11y::new("Note form", Role::Group),
+            None,
+        ),
         None,
     )
 }

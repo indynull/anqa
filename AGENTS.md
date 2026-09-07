@@ -691,7 +691,7 @@ against the catalog.
 | ``q`` | Quit the TUI (HUD hides with ``Esc``; tray **Quit anqa** exits the process) |
 | ``Ctrl+P`` | Command palette |
 | ``F5`` / ``Ctrl+R`` | Refresh |
-| ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Tab** / **Shift+Tab** / **Ctrl+1–5**) |
+| ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Ctrl+Tab** / **Ctrl+1–5**) |
 | ``E`` | Export bundle |
 | ``x`` | Delete a session (double-press) |
 | ``s`` / ``space`` | Multi-select |
@@ -701,7 +701,8 @@ panes. Digits type into search, so pane jump is **Ctrl+1–5**.
 
 | Key | Action |
 |-----|--------|
-| ``Tab`` / ``Shift+Tab`` | Next / previous browse pane (on Notes: next / previous note field; ``Ctrl+Tab`` still changes panes) |
+| ``Tab`` / ``Shift+Tab`` | Next / previous focusable control (Turn, Filter, search, Overview sections, note fields) |
+| ``Ctrl+Tab`` / ``Ctrl+Shift+Tab`` | Next / previous browse pane |
 | ``Ctrl+1``…``Ctrl+5`` | Jump Overview … Notes (Diff is pane 4) |
 | ``[`` | Timeline: all turns (Filter stays) |
 | ``]`` | Timeline: next matching Filter hit while All turns is selected |
