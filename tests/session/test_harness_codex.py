@@ -249,6 +249,21 @@ def test_list_status_close_bookend_and_later_start(tmp_path: Path) -> None:
     assert_adapter_turn(aborted, "cancelled")
 
 
+def test_committed_fixture_is_one_turn() -> None:
+    """One user plus task_started is one picker row, not an empty turn 0."""
+    _install_store()
+    ref = CodexAdapter().ref_for_id(_SID)
+    assert ref is not None
+    events = require_adapter(ref).parse_timeline(ref)
+    starts = [e for e in events if e.event_type == "turn_started"]
+    assert len(starts) == 1
+    assert starts[0].turn_number == 0
+    ov = session_overview(ref)
+    assert ov["turns"]["total"] == 1
+    assert ov["turns"]["turns"][0]["userCount"] == 1
+    assert ov["turns"]["turns"][0]["summary"]
+
+
 def test_overview_lists_subagent_runs() -> None:
     _install_store()
     ref = CodexAdapter().ref_for_id(_SID)

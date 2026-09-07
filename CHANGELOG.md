@@ -55,7 +55,8 @@ Cursor (`cursor`) are registered.
   the `parentUuid` leaf path. Tool cards keep `Edit` / `Write` /
   `StrReplace`. Format contract: `docs/harness-claude.md`.
 - Codex Diff lists one `Turn N` point per user turn. The rust parser
-  stamps `turn_started` on each user message.
+  stamps `turn_number` on `task_started` when that bookend is present,
+  and emits `turn_started` on a user message only when it is not.
 - Codex Overview reads last `event_msg` `info.last_token_usage.total_tokens`.
 - Format contracts: `docs/harness-codex.md`, `docs/harness-gemini.md`,
   `docs/harness-cursor.md`, `docs/harness-copilot.md`,

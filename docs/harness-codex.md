@@ -32,10 +32,10 @@ read the full file.
 
 | Codex | Anqa |
 |-------|------|
-| `response_item` message `role=user` | numbered `turn_started` + `user_message_chunk` (`<environment_context>` skipped) |
+| `response_item` message `role=user` | `user_message_chunk` (`<environment_context>` skipped). Stamps `turn_number` on the open `task_started` bookend, or emits numbered `turn_started` when there is no bookend. |
 | `response_item` message `role=assistant` | `agent_message_chunk` |
 | `custom_tool_call` / `function_call` | `tool_call` |
-| `event_msg` `task_started` | `turn_started` (list running) |
+| `event_msg` `task_started` | `turn_started` (list running; numbered when the next user lands) |
 | `event_msg` `task_complete` | `turn_completed` |
 | `event_msg` `turn_aborted` | `turn_ended` |
 | `item_completed` `SubAgentActivity` | `subagent_spawned` / `subagent_finished` |

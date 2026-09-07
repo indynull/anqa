@@ -213,22 +213,33 @@ impl Store for Codex {
     fn events(&self, records: &[crate::store::Record]) -> Vec<Event> {
         let mut out = Vec::new();
         let mut turn = 0i32;
+        let mut bookend: Option<usize> = None;
         for rec in records {
             for ev in from_row(rec) {
+                if matches!(ev.event_type, EventType::TurnStarted) {
+                    out.push(ev);
+                    bookend = Some(out.len() - 1);
+                    continue;
+                }
                 if matches!(ev.event_type, EventType::UserMessageChunk) {
-                    let mut start = Event::new(EventType::TurnStarted)
-                        .with_ts(ev.timestamp)
-                        .with_content(format!("turn_number={turn}"))
-                        .with_raw(ev.raw.clone());
-                    start.turn_number = Some(turn);
-                    out.push(start);
+                    if let Some(i) = bookend.take() {
+                        out[i].turn_number = Some(turn);
+                        out[i].content = format!("turn_number={turn}");
+                    } else {
+                        let mut start = Event::new(EventType::TurnStarted)
+                            .with_ts(ev.timestamp)
+                            .with_content(format!("turn_number={turn}"))
+                            .with_raw(ev.raw.clone());
+                        start.turn_number = Some(turn);
+                        out.push(start);
+                    }
                     let mut user = ev;
                     user.turn_number = Some(turn);
                     out.push(user);
                     turn += 1;
-                } else {
-                    out.push(ev);
+                    continue;
                 }
+                out.push(ev);
             }
         }
         out
