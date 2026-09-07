@@ -32,6 +32,9 @@ work ships.
 - icedtea `motion::overlay` (`OverlayLayer`) does not implement
   `Widget::overlay`, so pick lists never open while that wrap is mounted.
   `page_body` and `fade_palette` mount it only while the fade runs.
+- icedtea `pick_list` (`group_keys_open`) synthesizes a click on any
+  uncaptured Enter, even when the pick is not focused. Timeline Turn /
+  Filter wrap `activate_when_focused` until icedtea checks focus.
 
 ## Always on (`just ci` / `just lint`)
 

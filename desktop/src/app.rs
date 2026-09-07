@@ -6703,7 +6703,7 @@ impl Hud {
                 let src = self.tl_filter[pos];
                 if let Some(ev) = self.timeline.get(src) {
                     self.timeline_focus = Some(ev.index);
-                    return self.scroll_focus_into_view();
+                    return Task::batch([self.scroll_focus_into_view(), self.leave_search()]);
                 }
                 Task::none()
             }
@@ -6870,7 +6870,7 @@ impl Hud {
         let src = self.tl_filter[pos];
         if let Some(ev) = self.timeline.get(src) {
             self.timeline_focus = Some(ev.index);
-            return self.scroll_focus_into_view();
+            return Task::batch([self.scroll_focus_into_view(), self.leave_search()]);
         }
         Task::none()
     }
@@ -10370,6 +10370,18 @@ mod tests {
         let _ = hud.update(Message::RawEvent(press("]")));
         assert!(hud.events_turn_index.is_none());
         assert_eq!(hud.timeline_focus(), Some(5));
+    }
+
+    #[test]
+    fn timeline_list_nav_unfocuses_chrome() {
+        use iced::keyboard::{Key, Modifiers};
+        let mut hud = two_turn_timeline();
+        hud.blur_after = 0;
+        let _ = hud.on_key(Key::Character("j".into()), Modifiers::empty());
+        assert!(
+            hud.blur_after > 0,
+            "j/k must drop Turn / Filter focus so list Enter opens the event"
+        );
     }
 
     #[test]

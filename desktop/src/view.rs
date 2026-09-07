@@ -960,6 +960,180 @@ fn timeline_tail_toggle(hud: &Hud) -> Element<'_, Message> {
     )
 }
 
+/// icedtea `pick_list` opens on any uncaptured Enter. Forward Enter /
+/// Space only while the pick itself is focused (Tab or click).
+fn activate_when_focused(child: Element<'_, Message>) -> Element<'_, Message> {
+    ActivateWhenFocused { content: child }.into()
+}
+
+struct ActivateWhenFocused<'a, Message> {
+    content: Element<'a, Message>,
+}
+
+struct AnyFocused(bool);
+
+impl iced::advanced::widget::Operation<()> for AnyFocused {
+    fn traverse(
+        &mut self,
+        operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation<()>),
+    ) {
+        operate(self);
+    }
+
+    fn focusable(
+        &mut self,
+        _id: Option<&iced::widget::Id>,
+        _bounds: iced::Rectangle,
+        state: &mut dyn iced::advanced::widget::operation::Focusable,
+    ) {
+        if state.is_focused() {
+            self.0 = true;
+        }
+    }
+}
+
+fn is_activate_key(event: &iced::Event) -> bool {
+    let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }) = event else {
+        return false;
+    };
+    matches!(
+        key,
+        iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
+    ) || matches!(key, iced::keyboard::Key::Character(c) if c.as_str() == " ")
+}
+
+impl<Message> iced::advanced::Widget<Message, iced::Theme, iced::Renderer>
+    for ActivateWhenFocused<'_, Message>
+{
+    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
+        vec![iced::advanced::widget::Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> iced::Size<iced::Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        renderer: &iced::Renderer,
+        limits: &iced::advanced::layout::Limits,
+    ) -> iced::advanced::layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        event: &iced::Event,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::mouse::Cursor,
+        renderer: &iced::Renderer,
+        clipboard: &mut dyn iced::advanced::Clipboard,
+        shell: &mut iced::advanced::Shell<'_, Message>,
+        viewport: &iced::Rectangle,
+    ) {
+        if is_activate_key(event) {
+            let mut op = AnyFocused(false);
+            self.content
+                .as_widget_mut()
+                .operate(&mut tree.children[0], layout, renderer, &mut op);
+            if !op.0 {
+                return;
+            }
+        }
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn draw(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &iced::advanced::renderer::Style,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        renderer: &iced::Renderer,
+        operation: &mut dyn iced::advanced::widget::Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'_>,
+        cursor: iced::mouse::Cursor,
+        viewport: &iced::Rectangle,
+        renderer: &iced::Renderer,
+    ) -> iced::mouse::Interaction {
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut iced::advanced::widget::Tree,
+        layout: iced::advanced::Layout<'b>,
+        renderer: &iced::Renderer,
+        viewport: &iced::Rectangle,
+        translation: iced::Vector,
+    ) -> Option<iced::advanced::overlay::Element<'b, Message, iced::Theme, iced::Renderer>> {
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a, Message: 'a> From<ActivateWhenFocused<'a, Message>> for Element<'a, Message> {
+    fn from(value: ActivateWhenFocused<'a, Message>) -> Self {
+        Self::new(value)
+    }
+}
+
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     let tea = hud.tokens();
     // Two rows: picks + optional range; full-width search below so it never
@@ -971,28 +1145,28 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
             tea,
             A11y::new("Turn", Role::Header),
         ));
-        picks = picks.push(icedtea::widget::pick_list(
+        picks = picks.push(activate_when_focused(icedtea::widget::pick_list(
             hud.events_turn_options(),
             Some(hud.events_turn_selected()),
             Message::EventsTurnPicked,
             tea,
             icedtea::widget::ControlSize::Default,
             A11y::new("Turn", Role::ComboBox),
-        ));
+        )));
     }
     picks = picks.push(icedtea::widget::meta(
         "Filter",
         tea,
         A11y::new("Filter", Role::Header),
     ));
-    picks = picks.push(icedtea::widget::pick_list(
+    picks = picks.push(activate_when_focused(icedtea::widget::pick_list(
         &KindFilter::ALL[..],
         Some(hud.timeline_kind()),
         Message::TimelineKind,
         tea,
         icedtea::widget::ControlSize::Default,
         A11y::new("Filter", Role::ComboBox),
-    ));
+    )));
     picks = picks
         .push(Space::new().width(Length::Fill))
         .width(Length::Fill);
@@ -3735,6 +3909,104 @@ mod tests {
             "form-row switch fills the picks row"
         );
         assert!(src.contains("kit::pane_tabs"), "session-gated tabs");
+    }
+
+    struct FocusFirst {
+        done: bool,
+    }
+
+    impl iced::advanced::widget::Operation<()> for FocusFirst {
+        fn traverse(
+            &mut self,
+            operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation<()>),
+        ) {
+            operate(self);
+        }
+
+        fn focusable(
+            &mut self,
+            _id: Option<&iced::widget::Id>,
+            _bounds: iced::Rectangle,
+            state: &mut dyn iced::advanced::widget::operation::Focusable,
+        ) {
+            if !self.done {
+                state.focus();
+                self.done = true;
+            }
+        }
+    }
+
+    fn enter_opens_overlay(el: &mut Element<'_, Message>, focus_first: bool) -> bool {
+        use iced::advanced::clipboard;
+        use iced::advanced::layout::{Layout, Limits};
+        use iced::advanced::widget::Tree;
+        use iced::keyboard::{key::Named, Key, Location};
+        use iced::{Event, Font, Pixels, Point, Rectangle, Size};
+        let mut tree = Tree::new(el.as_widget());
+        let renderer = iced::Renderer::Secondary(iced_tiny_skia::Renderer::new(
+            Font::DEFAULT,
+            Pixels::from(16u32),
+        ));
+        let limits = Limits::new(Size::ZERO, Size::new(640.0, 120.0));
+        let node = el.as_widget_mut().layout(&mut tree, &renderer, &limits);
+        let layout = Layout::new(&node);
+        let vp = Rectangle::new(Point::ORIGIN, Size::new(640.0, 120.0));
+        if focus_first {
+            let mut op = FocusFirst { done: false };
+            el.as_widget_mut()
+                .operate(&mut tree, layout, &renderer, &mut op);
+            assert!(op.done, "filter bar must expose a focusable pick");
+        }
+        let mut clipboard = clipboard::Null;
+        let mut messages = Vec::new();
+        {
+            let mut shell = iced::advanced::Shell::new(&mut messages);
+            el.as_widget_mut().update(
+                &mut tree,
+                &Event::Keyboard(iced::keyboard::Event::KeyPressed {
+                    key: Key::Named(Named::Enter),
+                    modified_key: Key::Named(Named::Enter),
+                    physical_key: iced::keyboard::key::Physical::Code(
+                        iced::keyboard::key::Code::Enter,
+                    ),
+                    location: Location::Standard,
+                    modifiers: iced::keyboard::Modifiers::empty(),
+                    text: None,
+                    repeat: false,
+                }),
+                layout,
+                iced::mouse::Cursor::Unavailable,
+                &renderer,
+                &mut clipboard,
+                &mut shell,
+                &vp,
+            );
+        }
+        let open = el
+            .as_widget_mut()
+            .overlay(&mut tree, layout, &renderer, &vp, iced::Vector::ZERO)
+            .is_some();
+        open
+    }
+
+    #[test]
+    fn timeline_enter_does_not_open_an_unfocused_filter_pick() {
+        let hud = Hud::default();
+        let mut el = timeline_filter(&hud);
+        assert!(
+            !enter_opens_overlay(&mut el, false),
+            "Enter must open the focused event when no pick is focused"
+        );
+    }
+
+    #[test]
+    fn timeline_enter_opens_a_focused_filter_pick() {
+        let hud = Hud::default();
+        let mut el = timeline_filter(&hud);
+        assert!(
+            enter_opens_overlay(&mut el, true),
+            "Enter must open Turn / Filter after keyboard focus"
+        );
     }
 
     #[test]
