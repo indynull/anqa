@@ -246,6 +246,21 @@ impl Store for Codex {
         meta.num_events = self.event_count(locator, session_id);
         Ok(meta)
     }
+
+    fn detail_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if !locator.is_file() {
+            return Err(format!("codex session not found: {session_id}"));
+        }
+        let rows = jsonl::cached_records(locator, None);
+        if rows.is_empty() {
+            return Err(format!("codex session not found: {session_id}"));
+        }
+        let events = self.events(&rows);
+        let mut meta = meta_from_window(&rows, locator, session_id);
+        meta.num_events = events.len() as u32;
+        meta.context_tokens_used = last_usage(&rows);
+        Ok(meta)
+    }
 }
 
 const TURN_SIGNALS: &[&str] = &["task_started", "task_complete", "turn_aborted"];
@@ -326,6 +341,47 @@ fn count_tools(rows: &[JsonlRow]) -> u32 {
             pt == "custom_tool_call" || pt == "function_call"
         })
         .count() as u32
+}
+
+fn usage_total(bag: &Value) -> Option<i64> {
+    if let Some(n) = bag.get("total_tokens").and_then(Value::as_i64) {
+        return Some(n);
+    }
+    let input = bag.get("input_tokens").and_then(Value::as_i64).unwrap_or(0);
+    let cached = bag
+        .get("cached_input_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let output = bag
+        .get("output_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let n = input + cached + output;
+    if n == 0 && bag.get("input_tokens").is_none() {
+        None
+    } else {
+        Some(n)
+    }
+}
+
+fn last_usage(rows: &[JsonlRow]) -> Option<i64> {
+    let mut found = None;
+    for row in rows {
+        if text::field_str(&row.value, "type") != "event_msg" {
+            continue;
+        }
+        let info = payload(&row.value)
+            .get("info")
+            .cloned()
+            .unwrap_or(Value::Null);
+        let bag = info
+            .get("last_token_usage")
+            .or_else(|| info.get("total_token_usage"));
+        if let Some(n) = bag.and_then(usage_total) {
+            found = Some(n);
+        }
+    }
+    found
 }
 
 fn count_subagents(rows: &[JsonlRow]) -> u32 {

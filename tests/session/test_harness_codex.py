@@ -167,6 +167,42 @@ def test_session_diff_one_point_per_user_turn(tmp_path: Path) -> None:
     assert [f["path"] for f in points[1]["files"]] == ["NOTE.txt"]
 
 
+def test_load_detail_reads_last_token_usage(tmp_path: Path) -> None:
+    path = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-000000000097.jsonl"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "aaaaaaaa-1111-4111-8111-000000000097"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "event_msg",
+                        "payload": {
+                            "type": "token_count",
+                            "info": {
+                                "last_token_usage": {
+                                    "input_tokens": 10,
+                                    "cached_input_tokens": 2,
+                                    "output_tokens": 5,
+                                    "total_tokens": 42,
+                                }
+                            },
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    meta = CodexAdapter().load_detail(path)
+    assert meta.context_tokens_used == 42
+
+
 def test_catalog_lists_codex_sessions() -> None:
     _install_store()
     rows = list_session_catalog(include_host=True)
