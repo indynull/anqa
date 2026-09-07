@@ -24,10 +24,13 @@ transcript where that product writes one). Claude Code, Codex,
 Cursor, Gemini CLI, and Pi keep one JSONL conversation per session.
 Grok Build keeps a session directory (`updates.jsonl`).
 
-Adding or re-checking an adapter: `.grok/skills/harness-adapter-qa/SKILL.md`.
+Adding or re-checking an adapter, and any change that touches
+control, catalog, or a store: `.grok/skills/harness-adapter-qa/SKILL.md`.
 `just lint` runs `scripts/check_harness_adapters.py`.
 `just harness-probe` compares each installed product version to
 `supported_version` and samples on-disk record types (no session text).
+Those two commands are required before a control, catalog, or store
+commit.
 The session surfaces below are the adapter contract:
 `tests/session/test_harness_contract.py` drives them on every shipped
 store fixture.

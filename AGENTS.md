@@ -219,9 +219,10 @@ notes through those methods — not ``require_adapter`` on a catalog id.
   ``[catalog] ignore`` omits a store; ``[catalog.roots]`` overrides a path.
   Every session's catalog path is ``harness:<session_id>``. Notes live
   under ``~/.anqa/notes/<harness>/<session_id>/``. Contract:
-  ``docs/harness-adapters.md``. New or bumped adapters go through
-  ``.grok/skills/harness-adapter-qa`` and
-  ``scripts/check_harness_adapters.py``.
+  ``docs/harness-adapters.md``. New or bumped adapters, and any change
+  that touches control, catalog, or a store adapter, go through
+  ``.grok/skills/harness-adapter-qa`` (``just harness-probe`` plus
+  ``scripts/check_harness_adapters.py`` via ``just lint``).
 
 ### 3.1 Live sessions (product behaviour)
 
