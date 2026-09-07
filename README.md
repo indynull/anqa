@@ -209,7 +209,8 @@ The footer lists the keys that apply now; `?` is the full list.
 On Timeline, drag the list/detail divider to resize the panes. Enter
 still opens a full-width event.
 
-The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
+The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / Command+C
+or Control+C / `j` `k`
 / `h` `l` (previous / next Timeline turn) / `N`. HUD panes are Tab
 and Ctrl+1–5 except on Notes, where Tab walks the note fields and
 Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).

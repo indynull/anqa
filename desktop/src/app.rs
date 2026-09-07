@@ -679,35 +679,62 @@ fn write_os_clipboard(text: &str) {
     if text.is_empty() {
         return;
     }
-    #[cfg(target_os = "linux")]
-    {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
-        let jobs: &[(&str, &[&str])] = &[
-            ("wl-copy", &[]),
-            ("xclip", &["-selection", "clipboard", "-in"]),
-            ("xclip", &["-selection", "primary", "-in"]),
-            ("xsel", &["--clipboard", "--input"]),
-        ];
-        for (bin, args) in jobs {
-            let Ok(mut child) = Command::new(bin)
-                .args(*args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-            else {
-                continue;
-            };
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            std::thread::spawn(move || {
-                let _ = child.wait();
-            });
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let jobs: &[(&str, &[&str])] = {
+        #[cfg(target_os = "macos")]
+        {
+            &[("pbcopy", &[])]
         }
+        #[cfg(target_os = "linux")]
+        {
+            &[
+                ("wl-copy", &[]),
+                ("xclip", &["-selection", "clipboard", "-in"]),
+                ("xclip", &["-selection", "primary", "-in"]),
+                ("xsel", &["--clipboard", "--input"]),
+            ]
+        }
+        #[cfg(target_os = "windows")]
+        {
+            &[("clip", &[])]
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+        {
+            &[]
+        }
+    };
+    for (bin, args) in jobs {
+        let Ok(mut child) = Command::new(bin)
+            .args(*args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+        else {
+            continue;
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(text.as_bytes());
+        }
+        std::thread::spawn(move || {
+            let _ = child.wait();
+        });
     }
-    let _ = text;
+}
+
+fn is_host_copy_chord(key: &Key, modifiers: KeyMods) -> bool {
+    if modifiers.alt() {
+        return false;
+    }
+    let Key::Character(c) = key else {
+        return false;
+    };
+    if !c.eq_ignore_ascii_case("c") {
+        return false;
+    }
+    (modifiers.command() && !modifiers.control() && !modifiers.shift())
+        || (modifiers.control() && !modifiers.command() && !modifiers.shift())
 }
 
 fn apply_hud_chrome(prep: &mut icedtea::app::Prepared) {
@@ -6325,6 +6352,7 @@ impl Hud {
         }
         if self.key_is("edit.copy", "y", &key, modifiers)
             || self.key_is("edit.copy_chord", "ctrl+shift+c", &key, modifiers)
+            || is_host_copy_chord(&key, modifiers)
         {
             return self.yank_active();
         }
@@ -7061,6 +7089,14 @@ fn chrome_key_table() -> icedtea::action::ActionTable<Message> {
             .with_shortcut(parsed),
         );
     }
+    table.insert(
+        Action::new("edit.copy", "Copy", Message::Yank)
+            .with_shortcut(Shortcut::parse("ctrl+c").expect("ctrl+c")),
+    );
+    table.insert(
+        Action::new("edit.copy_chord", "Copy", Message::Yank)
+            .with_shortcut(Shortcut::parse("ctrl+shift+c").expect("ctrl+shift+c")),
+    );
     table
 }
 
@@ -7109,6 +7145,11 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
             // even when X11 reports the C0 control character instead of "4".
             if let Some(n) = pane_digit_from_event(kev) {
                 return Some(Message::PaneDigit(n));
+            }
+            if let keyboard::Event::KeyPressed { key, modifiers, .. } = kev {
+                if is_host_copy_chord(key, *modifiers) {
+                    return Some(Message::Yank);
+                }
             }
             // List arrows must work while Search sessions is focused (Spotlight).
             // Single-line fields capture them; we still want palette navigation.
@@ -12475,6 +12516,43 @@ mod tests {
                 "missing pane.{n}"
             );
         }
+        assert!(table.get("edit.copy").is_some());
+        assert!(table.get("edit.copy_chord").is_some());
+    }
+
+    #[test]
+    fn captured_host_copy_chord_yanks_while_a_field_is_focused() {
+        let ev = Event::Keyboard(keyboard::Event::KeyPressed {
+            key: Key::Character("c".into()),
+            modified_key: Key::Character("c".into()),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyC),
+            location: iced::keyboard::Location::Standard,
+            modifiers: icedtea::shortcut::primary(),
+            text: None,
+            repeat: false,
+        });
+        assert!(
+            matches!(
+                interesting_hud_event(ev, event::Status::Captured, window::Id::unique()),
+                Some(Message::Yank)
+            ),
+            "Command/Control+C must yank even when the detail field captured the key"
+        );
+    }
+
+    #[test]
+    fn host_copy_chord_yanks_the_open_event_body() {
+        let mut hud = hud_with_session();
+        hud.tab = Tab::Timeline;
+        hud.timeline_open = Some(3);
+        hud.bind_field("event.3.out", "quote this line");
+        let _ = hud.on_key(Key::Character("c".into()), icedtea::shortcut::primary());
+        assert!(
+            !hud.toasts()
+                .iter()
+                .any(|t| t.text.contains("Nothing to copy")),
+            "open event body must be on the copy path"
+        );
     }
 
     fn load_page(

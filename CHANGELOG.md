@@ -133,6 +133,8 @@ Cursor (`cursor`) are registered.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
 - The palette is on icedtea 0.16.2. Session cards highlight on release.
+  Command+C / Control+C copies the focused quote body (and writes
+  the host pasteboard on macOS with `pbcopy`).
   Selected list rows use a quiet wash. A focused list has no pane ring.
   Stepping Timeline event detail (`j` / `k`) uses icedtea shared-axis
   motion.
