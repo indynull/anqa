@@ -54,6 +54,8 @@ Cursor (`cursor`) are registered.
   `cache_read_input_tokens` + `output_tokens`). The timeline follows
   the `parentUuid` leaf path. Tool cards keep `Edit` / `Write` /
   `StrReplace`. Format contract: `docs/harness-claude.md`.
+- Codex Diff lists one `Turn N` point per user turn. The rust parser
+  stamps `turn_started` on each user message.
 - Diff uses rewind snapshots when the store wrote them. Otherwise it
   rebuilds per-path patches from write and edit tool calls on the
   timeline (every shipped adapter). OpenCode also uses

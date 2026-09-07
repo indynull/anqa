@@ -101,6 +101,72 @@ def test_session_diff_reads_exec_apply_patch(tmp_path: Path) -> None:
     assert "WS1" in str(doc["points"][0]["files"][0]["unified"])
 
 
+def test_session_diff_one_point_per_user_turn(tmp_path: Path) -> None:
+    path = tmp_path / "rollout-2026-08-30T12-00-00-aaaaaaaa-1111-4111-8111-000000000098.jsonl"
+    patch1 = "*** Begin Patch\\n*** Add File: hello.py\\n+1\\n*** End Patch"
+    patch2 = "*** Begin Patch\\n*** Add File: NOTE.txt\\n+hi\\n*** End Patch"
+    path.write_text(
+        "\n".join(
+            [
+                json.dumps(
+                    {
+                        "type": "session_meta",
+                        "payload": {"id": "aaaaaaaa-1111-4111-8111-000000000098"},
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "edit hello"}],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "custom_tool_call",
+                            "name": "exec",
+                            "input": f'await tools.apply_patch("{patch1}");',
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "message",
+                            "role": "user",
+                            "content": [{"type": "input_text", "text": "write note"}],
+                        },
+                    }
+                ),
+                json.dumps(
+                    {
+                        "type": "response_item",
+                        "payload": {
+                            "type": "custom_tool_call",
+                            "name": "exec",
+                            "input": f'await tools.apply_patch("{patch2}");',
+                        },
+                    }
+                ),
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    ref = CodexAdapter().bind_locator(path)
+    assert ref is not None
+    points = session_diff(ref)["points"]
+    assert [p["promptIndex"] for p in points] == [0, 1]
+    assert [f["path"] for f in points[0]["files"]] == ["hello.py"]
+    assert [f["path"] for f in points[1]["files"]] == ["NOTE.txt"]
+
+
 def test_catalog_lists_codex_sessions() -> None:
     _install_store()
     rows = list_session_catalog(include_host=True)
