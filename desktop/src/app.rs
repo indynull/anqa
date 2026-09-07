@@ -59,6 +59,8 @@ const HUD_W: f32 = 780.0;
 const HUD_H: f32 = 560.0;
 const APP_ID: &str = "dev.indynull.anqa-hud";
 const OVERLAY_APP_ID: &str = "dev.indynull.anqa-hud.overlay";
+/// Frames to unfocus search after a page remount (iced focuses the first field).
+const SEARCH_BLUR_TICKS: u8 = 2;
 
 /// Which edge event to open after a turn-scoped pager crosses a turn boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -354,8 +356,8 @@ pub struct Hud {
     timeline_follow_tail: bool,
     /// Full-pane event detail on Timeline (not an in-list expander).
     timeline_open: Option<i64>,
-    /// Previous event still painted while a step switch runs.
-    detail_leaving: Option<i64>,
+    /// Previous browse tab while a pane FadeThrough runs.
+    tab_leaving: Option<Tab>,
     /// Overview workflow inspect when the run has no Timeline bookend.
     workflow_inspect_id: Option<String>,
     /// After a turn-boundary step, open first/last event once the page loads.
@@ -426,10 +428,21 @@ pub struct Hud {
     spin_phase: f32,
     overlay: Animation<bool>,
     page: Animation<bool>,
+    /// Unfocus catalog search after the next remount (see [`Hud::leave_search`]).
+    blur_after: u8,
     page_slide: icedtea::motion::Slide,
     page_role: MotionRole,
     page_layer: PageLayer,
-    page_dir: Option<icedtea::motion::Slide>,
+    help_run: icedtea::motion::Run,
+    context_run: icedtea::motion::Run,
+    context_hold: Option<Point>,
+    event_fade: icedtea::motion::Run,
+    compose_run: icedtea::motion::Run,
+    compose_closing: bool,
+    hint_run: icedtea::motion::Run,
+    hints_shown: bool,
+    hint_line: String,
+    shake_run: icedtea::motion::Run,
     reduced_motion: bool,
     catalog_busy: bool,
     notes_open: HashSet<String>,
@@ -548,7 +561,7 @@ impl Default for Hud {
             timeline_focus: None,
             timeline_follow_tail: false,
             timeline_open: None,
-            detail_leaving: None,
+            tab_leaving: None,
             workflow_inspect_id: None,
             detail_turn_edge: None,
             timeline_prompt: None,
@@ -618,10 +631,20 @@ impl Default for Hud {
             spin_phase: 0.0,
             overlay: motion::role_animation(MotionRole::Present, true, false),
             page: motion::role_animation(MotionRole::Sibling, true, false),
+            blur_after: 0,
             page_slide: icedtea::motion::Slide::None,
             page_role: MotionRole::None,
             page_layer: PageLayer::Pane,
-            page_dir: None,
+            help_run: motion::run_job(motion::help_job(), false, false),
+            context_run: motion::run_job(motion::menu_job(), false, false),
+            context_hold: None,
+            event_fade: motion::rest_event_fade(false),
+            compose_run: motion::run_job(motion::disclose_job(), false, false),
+            compose_closing: false,
+            hint_run: motion::run_job(motion::hint_job(), false, false),
+            hints_shown: false,
+            hint_line: String::new(),
+            shake_run: motion::run_job(motion::shake_job(), false, false),
             reduced_motion: motion::detect_reduced_motion(),
             catalog_busy: false,
             notes_open: HashSet::new(),
@@ -1041,7 +1064,13 @@ impl Hud {
                 self.resample_host_look()
             }
             Message::SearchChanged(q) => {
+                // Page remount focuses Search sessions. Drop nav letters until
+                // leave_search has unfocused the field.
+                if self.blur_after > 0 {
+                    return Task::none();
+                }
                 self.query = q;
+                self.sync_hint_clock();
                 self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
                 self.catalog_search_pending = true;
                 let gen = self.catalog_search_gen;
@@ -1190,6 +1219,7 @@ impl Hud {
                     self.drop_timeline_detail();
                 }
                 if self.tab != tab {
+                    self.tab_leaving = Some(self.tab);
                     self.go_page(
                         motion::tab_role(self.tab, tab),
                         PageLayer::Pane,
@@ -1197,6 +1227,7 @@ impl Hud {
                     );
                 }
                 self.tab = tab;
+                self.sync_hint_clock();
                 self.bind_copy_bodies();
                 let load = match tab {
                     Tab::Timeline => {
@@ -1216,10 +1247,11 @@ impl Hud {
                 };
                 // Same as Escape in search: land on the list so j/k work.
                 // `/` focuses this tab's search again.
-                Task::batch([load, Self::blur_text_inputs()])
+                Task::batch([load, self.leave_search()])
             }
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
+                self.sync_hint_clock();
                 self.timeline_search_gen = self.timeline_search_gen.wrapping_add(1);
                 self.timeline_search_pending = true;
                 let gen = self.timeline_search_gen;
@@ -1324,6 +1356,13 @@ impl Hud {
                 Task::none()
             }
             Message::TimelineKind(k) => {
+                if k != self.timeline_kind {
+                    self.go_page(
+                        MotionRole::Sibling,
+                        PageLayer::Pane,
+                        icedtea::motion::Slide::None,
+                    );
+                }
                 self.timeline_kind = k;
                 self.timeline_focus = None;
                 self.drop_timeline_detail();
@@ -1445,6 +1484,7 @@ impl Hud {
             Message::TimelineDetailStep(delta) => self.nav_timeline_detail_step(delta),
             Message::TurnsQuery(q) => {
                 self.turns_query_draft = q;
+                self.sync_hint_clock();
                 self.turns_search_gen = self.turns_search_gen.wrapping_add(1);
                 self.turns_search_pending = true;
                 let gen = self.turns_search_gen;
@@ -1504,6 +1544,7 @@ impl Hud {
                 self.note_compose_lock = true;
                 self.typing_notes = true;
                 self.tab = Tab::Notes;
+                self.go_compose(true);
                 self.focus_first_note_field()
             }
             Message::OpenNote(nid) => {
@@ -1717,6 +1758,12 @@ impl Hud {
                 }
             },
             Message::ActivateSelected => {
+                if crate::query::highlight_query_spans(&self.query)
+                    .iter()
+                    .any(|s| s.kind == crate::query::QuerySpanKind::Unknown)
+                {
+                    self.go_shake();
+                }
                 if self.browse_mode() {
                     // Already in full-width browse with an empty search — no re-pick.
                     return Task::none();
@@ -2146,8 +2193,7 @@ impl Hud {
                 if self.typing_notes {
                     return Task::none();
                 }
-                self.help_open = !self.help_open;
-                self.context = None;
+                self.go_help(!self.help_open);
                 Task::none()
             }
             Message::CloseRequested(id) => self.on_close_requested(id),
@@ -2163,8 +2209,7 @@ impl Hud {
             Message::SelectAllText => self.select_all_text(),
             Message::Cursor(ev) => self.on_cursor(ev),
             Message::ContextDismiss => {
-                self.context = None;
-                self.context_sel = None;
+                self.go_context(false);
                 Task::none()
             }
             Message::WindowSize(size) => {
@@ -3016,8 +3061,7 @@ impl Hud {
     }
 
     fn copy_text(&mut self, text: String) -> Task<Message> {
-        self.context = None;
-        self.context_sel = None;
+        self.go_context(false);
         let text = text.trim().to_string();
         if text.is_empty() {
             self.toasts.push_warning("Nothing to copy");
@@ -3231,7 +3275,7 @@ impl Hud {
             }
             icedtea::layout::CursorEvent::Context if self.visible => {
                 self.context_sel = self.fields.first_selection();
-                self.context = Some(self.pointer);
+                self.go_context(true);
             }
             icedtea::layout::CursorEvent::Context => {}
         }
@@ -3249,6 +3293,9 @@ impl Hud {
     }
 
     pub fn composing_note(&self) -> bool {
+        if self.compose_closing {
+            return false;
+        }
         self.note_compose_lock || self.typing_notes || !self.note_draft.id.is_empty()
     }
 
@@ -3370,7 +3417,7 @@ impl Hud {
     /// Body paint: overlay fade times in-flight page fade.
     pub fn body_tokens(&self) -> icedtea::theme::Tokens {
         let tok = self.tokens();
-        if !self.page_moving() || matches!(self.page_role, MotionRole::Step) {
+        if !self.page_moving() {
             return tok;
         }
         tok.fade(icedtea::motion::visual(
@@ -3379,9 +3426,59 @@ impl Hud {
         ))
     }
 
-    /// Event still fading out while the next detail fades in.
-    pub fn detail_leaving(&self) -> Option<i64> {
-        self.detail_leaving
+    /// Previous tab still painted while a pane FadeThrough runs.
+    pub fn tab_leaving(&self) -> Option<Tab> {
+        self.tab_leaving
+    }
+
+    pub fn event_fade_progress(&self) -> f32 {
+        self.event_fade.progress(Instant::now())
+    }
+
+    pub fn event_fade_moving(&self) -> bool {
+        self.event_fade.is_live(Instant::now())
+    }
+
+    pub fn help_progress(&self) -> f32 {
+        self.help_run.progress(Instant::now())
+    }
+
+    pub fn help_visible(&self) -> bool {
+        self.help_open || self.help_run.is_live(Instant::now()) && self.help_progress() > 0.0
+    }
+
+    pub fn context_paint(&self) -> Option<(Point, f32)> {
+        let p = self.context_run.progress(Instant::now());
+        if p <= 0.0 && !self.context_run.is_live(Instant::now()) {
+            return None;
+        }
+        self.context_hold.map(|origin| (origin, p))
+    }
+
+    pub fn compose_progress(&self) -> f32 {
+        self.compose_run.progress(Instant::now())
+    }
+
+    pub fn compose_visible(&self) -> bool {
+        (self.composing_note() && !self.compose_closing)
+            || self.compose_run.is_live(Instant::now()) && self.compose_progress() > 0.0
+            || (self.composing_note() && self.compose_progress() > 0.0)
+    }
+
+    pub fn hint_progress(&self) -> f32 {
+        self.hint_run.progress(Instant::now())
+    }
+
+    pub fn hint_text(&self) -> &str {
+        &self.hint_line
+    }
+
+    pub fn shake_progress(&self) -> f32 {
+        self.shake_run.progress(Instant::now())
+    }
+
+    pub fn shake_live(&self) -> bool {
+        self.shake_run.is_live(Instant::now()) && self.shake_progress() > 0.0
     }
 
     pub fn overlay_progress(&self) -> f32 {
@@ -3415,6 +3512,12 @@ impl Hud {
     fn expanders_moving(&self) -> bool {
         let now = Instant::now();
         self.note_motion.values().any(|a| a.is_animating(now))
+            || self.help_run.is_live(now)
+            || self.context_run.is_live(now)
+            || self.event_fade.is_live(now)
+            || self.compose_run.is_live(now)
+            || self.hint_run.is_live(now)
+            || self.shake_run.is_live(now)
     }
 
     fn list_return_pending(&self) -> bool {
@@ -3431,6 +3534,7 @@ impl Hud {
             || self.expanders_moving()
             || self.page_busy()
             || self.list_return_pending()
+            || self.blur_after > 0
             || (!self.visible && self.window_id.is_some() && !self.window_mode)
     }
 
@@ -3467,6 +3571,9 @@ impl Hud {
         if matches!(role, MotionRole::None) {
             return;
         }
+        if self.browse_mode() {
+            self.blur_after = SEARCH_BLUR_TICKS;
+        }
         let now = Instant::now();
         let current = self.page.interpolate(0.0, 1.0, now);
         let animating = self.page.is_animating(now);
@@ -3484,6 +3591,96 @@ impl Hud {
             self.reduced_motion,
             now,
         );
+    }
+
+    fn go_help(&mut self, open: bool) {
+        let now = Instant::now();
+        if self.reduced_motion {
+            self.help_run = motion::run_job(motion::help_job(), open, true);
+        } else {
+            motion::go_run(&mut self.help_run, open, now);
+        }
+        self.help_open = open;
+        if open {
+            self.go_context(false);
+        }
+    }
+
+    fn go_context(&mut self, open: bool) {
+        let now = Instant::now();
+        if open {
+            self.context = Some(self.pointer);
+            self.context_hold = Some(self.pointer);
+        } else {
+            self.context = None;
+            self.context_sel = None;
+        }
+        if self.reduced_motion {
+            self.context_run = motion::run_job(motion::menu_job(), open, true);
+            if !open {
+                self.context_hold = None;
+            }
+        } else {
+            motion::go_run(&mut self.context_run, open, now);
+        }
+    }
+
+    fn go_compose(&mut self, open: bool) {
+        let now = Instant::now();
+        if self.reduced_motion {
+            self.compose_run = motion::run_job(motion::disclose_job(), open, true);
+            self.compose_closing = false;
+            return;
+        }
+        if open {
+            self.compose_closing = false;
+            self.compose_run = motion::run_job(motion::disclose_job(), false, false);
+        }
+        motion::go_run(&mut self.compose_run, open, now);
+        self.compose_closing = !open;
+    }
+
+    fn go_shake(&mut self) {
+        let now = Instant::now();
+        self.shake_run = motion::run_job(motion::shake_job(), false, self.reduced_motion);
+        motion::go_run(&mut self.shake_run, true, now);
+    }
+
+    fn visible_hint_line(&self) -> String {
+        let hints = if !self.browse_mode() {
+            self.query_hints()
+        } else if self.tab == Tab::Timeline {
+            self.timeline_query_hints()
+        } else if self.tab == Tab::Turns {
+            self.turns_query_hints()
+        } else {
+            self.query_hints()
+        };
+        hints.into_iter().take(8).collect::<Vec<_>>().join("   ")
+    }
+
+    fn sync_hint_clock(&mut self) {
+        let line = self.visible_hint_line();
+        let now = Instant::now();
+        if !line.is_empty() {
+            self.hint_line = line;
+            if !self.hints_shown {
+                self.hints_shown = true;
+                if self.reduced_motion {
+                    self.hint_run = motion::run_job(motion::hint_job(), true, true);
+                } else {
+                    self.hint_run = motion::run_job(motion::hint_job(), false, false);
+                    motion::go_run(&mut self.hint_run, true, now);
+                }
+            }
+        } else if self.hints_shown {
+            self.hints_shown = false;
+            if self.reduced_motion {
+                self.hint_run = motion::run_job(motion::hint_job(), false, true);
+            } else {
+                motion::go_run(&mut self.hint_run, false, now);
+            }
+        }
     }
 
     fn go_overlay(&mut self, open: bool) {
@@ -3880,7 +4077,7 @@ impl Hud {
             (i + 1) % tabs.len()
         };
         Task::batch([
-            Self::blur_text_inputs(),
+            self.leave_search(),
             self.update(Message::SetTab(tabs[next])),
         ])
     }
@@ -4158,7 +4355,8 @@ impl Hud {
         self.timeline_gen += 1;
         self.timeline_focus = None;
         self.timeline_open = None;
-        self.detail_leaving = None;
+        self.tab_leaving = None;
+        self.event_fade = motion::rest_event_fade(self.reduced_motion);
         self.tl_return_scroll = None;
         self.tl_return_hold = false;
         self.note_return_scroll = None;
@@ -4739,44 +4937,21 @@ impl Hud {
         )
     }
 
-    fn filter_pos(&self, index: i64) -> Option<usize> {
-        self.tl_filter
-            .iter()
-            .position(|&src| self.timeline.get(src).is_some_and(|e| e.index == index))
-    }
-
-    fn detail_open_slide(&self, index: i64) -> icedtea::motion::Slide {
-        let Some(prev) = self.timeline_open else {
-            return icedtea::motion::Slide::End;
-        };
-        match (self.filter_pos(prev), self.filter_pos(index)) {
-            (Some(a), Some(b)) => motion::event_step_slide(b as i32 - a as i32),
-            _ => icedtea::motion::Slide::End,
-        }
-    }
-
     /// Open full-pane event detail on Timeline (fetch full content).
     fn open_timeline_detail(&mut self, index: i64) -> Task<Message> {
         if self.timeline_open == Some(index) {
             return Task::none();
         }
         let already = self.timeline_open.is_some();
-        let slide = self
-            .page_dir
-            .take()
-            .unwrap_or_else(|| self.detail_open_slide(index));
-        let role = if motion::event_switch_face(slide).is_some() {
-            MotionRole::Step
+        if already {
+            self.event_fade = motion::start_event_fade(self.reduced_motion, Instant::now());
         } else {
-            motion::event_open_role(already)
-        };
-        self.go_page(role, PageLayer::Pane, slide);
-        self.detail_leaving = if matches!(role, MotionRole::Step) && !self.reduced_motion {
-            self.timeline_open
-        } else {
-            None
-        };
-        if self.timeline_open.is_none() {
+            self.event_fade = motion::rest_event_fade(self.reduced_motion);
+            self.go_page(
+                motion::event_open_role(false),
+                PageLayer::Pane,
+                icedtea::motion::Slide::End,
+            );
             self.tl_return_scroll = Some(self.tl_window.scroll);
         }
         if let Some(prev) = self.timeline_open {
@@ -4795,7 +4970,7 @@ impl Hud {
         if let Some(ix) = self.timeline_open.take() {
             self.unbind_event_fields(ix);
         }
-        self.detail_leaving = None;
+        self.event_fade = motion::rest_event_fade(self.reduced_motion);
         self.workflow_inspect_id = None;
         self.detail_turn_edge = None;
         self.tl_return_scroll = None;
@@ -4818,7 +4993,7 @@ impl Hud {
             self.unbind_event_fields(ix);
             self.timeline_focus = Some(ix);
         }
-        self.detail_leaving = None;
+        self.event_fade = motion::rest_event_fade(self.reduced_motion);
         self.workflow_inspect_id = None;
         let pos = self.timeline_focus_pos();
         if pos.is_none() {
@@ -5055,16 +5230,18 @@ impl Hud {
     }
 
     fn select_events_turn(&mut self, turn_index: Option<i64>) -> Task<Message> {
-        self.go_page(
-            MotionRole::Sibling,
-            PageLayer::Pane,
-            icedtea::motion::Slide::None,
-        );
         self.tab = Tab::Timeline;
         // Filter and search stay; only the turn scope changes.
         // List stays on the list. An open event page stays open on the
         // first card of the new turn (or the same card when returning to all).
         let stay = self.timeline_open.is_some();
+        if !stay {
+            self.go_page(
+                MotionRole::Sibling,
+                PageLayer::Pane,
+                icedtea::motion::Slide::None,
+            );
+        }
         if stay && turn_index.is_some() {
             self.detail_turn_edge = Some(DetailTurnEdge::First);
         } else if !stay {
@@ -5079,9 +5256,9 @@ impl Hud {
                 self.timeline_focus = None;
                 self.rebuild_tl_filter();
                 if let Some(sid) = self.detail_sid() {
-                    return self.ensure_timeline(sid, true);
+                    return Task::batch([self.ensure_timeline(sid, true), self.leave_search()]);
                 }
-                Task::none()
+                self.leave_search()
             }
             Some(ti) => {
                 let Some(t) = self
@@ -5099,9 +5276,9 @@ impl Hud {
                 self.timeline_focus = t.user_event_index.or(t.first_index);
                 self.rebuild_tl_filter();
                 if let Some(sid) = self.detail_sid() {
-                    return self.ensure_timeline(sid, true);
+                    return Task::batch([self.ensure_timeline(sid, true), self.leave_search()]);
                 }
-                Task::none()
+                self.leave_search()
             }
         }
     }
@@ -5450,9 +5627,17 @@ impl Hud {
         self.notes_open.insert(nid.to_string());
         self.notes_focus = Some(nid.to_string());
         self.tab = Tab::Notes;
+        self.go_compose(true);
     }
 
     fn leave_note_compose(&mut self) -> Task<Message> {
+        self.go_compose(false);
+        self.finish_leave_note()
+    }
+
+    fn finish_leave_note(&mut self) -> Task<Message> {
+        self.compose_closing = false;
+        self.compose_run = motion::run_job(motion::disclose_job(), false, self.reduced_motion);
         self.note_draft = NoteDraft::default();
         self.note_form_ix = None;
         self.note_compose_lock = false;
@@ -5551,6 +5736,7 @@ impl Hud {
         self.note_delete_armed = nid;
         self.note_delete_until = Some(Instant::now() + Duration::from_millis(2500));
         self.status = "Press Delete again to confirm".into();
+        self.go_shake();
         Task::none()
     }
 
@@ -5714,7 +5900,7 @@ impl Hud {
             self.abandon_catalog_search();
             self.spotlight_limit = SPOTLIGHT_RECENT;
         }
-        self.help_open = false;
+        self.go_help(false);
         let reset = self.reset_detail_chrome();
         self.parent_stack.clear();
         self.restore_around = None;
@@ -5843,17 +6029,24 @@ impl Hud {
         .discard()
     }
 
+    /// Unfocus search now and again after the page remount (iced focuses
+    /// Search sessions when overlay / FadeThrough unmounts).
+    fn leave_search(&mut self) -> Task<Message> {
+        self.blur_after = SEARCH_BLUR_TICKS;
+        Self::blur_text_inputs()
+    }
+
     /// Window focus after a pick. Unfocus session search once so Enter drills
     /// panes; later clicks in turns / timeline search keep the caret.
-    fn focus_browse(&self) -> Task<Message> {
+    fn focus_browse(&mut self) -> Task<Message> {
         if !self.visible {
             return Task::none();
         }
-        Task::batch([self.x11_focus_only(0), Self::blur_text_inputs()])
+        Task::batch([self.x11_focus_only(0), self.leave_search()])
     }
 
     /// Summon / hotkey path: picker when no session open, else keep browse focus.
-    fn focus_overlay(&self) -> Task<Message> {
+    fn focus_overlay(&mut self) -> Task<Message> {
         if self.browse_mode() {
             self.focus_browse()
         } else {
@@ -5971,10 +6164,21 @@ impl Hud {
         self.last_tick = now;
         self.toasts.tick(dt.max(1));
         self.spin_phase = (self.spin_phase + 0.05) % 1.0;
-        if self.detail_leaving.is_some() && !self.page.is_animating(now) {
-            self.detail_leaving = None;
+        if self.tab_leaving.is_some() && !self.page.is_animating(now) {
+            self.tab_leaving = None;
+        }
+        if self.compose_closing && !self.compose_run.is_live(now) {
+            let _ = self.finish_leave_note();
+        }
+        if self.context.is_none()
+            && self.context_hold.is_some()
+            && !self.context_run.is_live(now)
+            && self.context_run.progress(now) < 0.01
+        {
+            self.context_hold = None;
         }
         self.sync_theme();
+        self.sync_hint_clock();
         if let Some(until) = self.leader_until {
             if Instant::now() >= until {
                 self.disarm_leader();
@@ -5988,6 +6192,10 @@ impl Hud {
             }
         }
         let mut cmds = Vec::new();
+        if self.blur_after > 0 && !self.page.is_animating(now) {
+            cmds.push(Self::blur_text_inputs());
+            self.blur_after = self.blur_after.saturating_sub(1);
+        }
         cmds.push(self.finish_overlay_hide());
         cmds.push(self.flush_list_returns());
         let notifies: Vec<(String, Value)> = if let Ok(mut g) = self.notify_q.lock() {
@@ -6130,8 +6338,7 @@ impl Hud {
     }
 
     fn copy_path(&mut self) -> Task<Message> {
-        self.context = None;
-        self.context_sel = None;
+        self.go_context(false);
         let path = self.session_path();
         if path.is_empty() {
             self.toasts.push_warning("No path");
@@ -6162,11 +6369,11 @@ impl Hud {
 
     fn on_escape(&mut self) -> Task<Message> {
         if self.help_open {
-            self.help_open = false;
+            self.go_help(false);
             return Task::none();
         }
-        if self.context.take().is_some() {
-            self.context_sel = None;
+        if self.context.is_some() {
+            self.go_context(false);
             return Task::none();
         }
         // Full-pane event detail → list at the current event before hide.
@@ -9535,10 +9742,26 @@ mod tests {
             .next()
             .expect("arm");
         assert!(
-            body.contains("blur_text_inputs"),
+            body.contains("leave_search"),
             "tab change must leave search like Escape"
         );
         assert!(!body.contains("Keep in-pane search focused"));
+    }
+
+    #[test]
+    fn turn_step_leaves_search_so_event_keys_keep_working() {
+        let src = include_str!("app.rs");
+        let body = src
+            .split("fn select_events_turn")
+            .nth(1)
+            .expect("select_events_turn")
+            .split("fn jump_timeline")
+            .next()
+            .expect("select_events_turn body");
+        assert!(
+            body.contains("leave_search"),
+            "h/l remounts the pane; leave search so j/k stay on the event"
+        );
     }
 
     #[test]
@@ -10150,6 +10373,80 @@ mod tests {
     }
 
     #[test]
+    fn catalog_search_does_not_eat_nav_letters_after_opening_timeline() {
+        let mut hud = two_turn_timeline();
+        assert!(hud.browse_mode());
+        assert_eq!(hud.query(), "");
+        let _ = hud.update(Message::SearchChanged("j".into()));
+        assert_eq!(
+            hud.query(),
+            "",
+            "remount focuses Search sessions; j must not leave browse"
+        );
+        assert!(hud.browse_mode());
+        let _ = hud.update(Message::SearchChanged("h".into()));
+        assert_eq!(hud.query(), "");
+        assert!(hud.browse_mode());
+        let _ = hud.update(Message::SearchChanged("l".into()));
+        assert_eq!(hud.query(), "");
+        assert!(hud.browse_mode());
+    }
+
+    #[test]
+    fn catalog_search_applies_again_after_the_remount_window() {
+        let mut hud = two_turn_timeline();
+        let _ = hud.update(Message::Tick);
+        let _ = hud.update(Message::Tick);
+        let _ = hud.update(Message::SearchChanged("harness:pi".into()));
+        assert_eq!(hud.query(), "harness:pi");
+        assert!(!hud.browse_mode());
+    }
+
+    #[test]
+    fn timeline_hjkl_after_session_open_steps_events_and_turns() {
+        let mut hud = two_turn_timeline();
+        hud.timeline_focus = Some(1);
+        hud.rebuild_tl_filter();
+        hud.rebuild_events_turn_options();
+        let press = |ch: &str, code: iced::keyboard::key::Code| {
+            Event::Keyboard(keyboard::Event::KeyPressed {
+                key: Key::Character(ch.into()),
+                modified_key: Key::Character(ch.into()),
+                physical_key: iced::keyboard::key::Physical::Code(code),
+                location: iced::keyboard::Location::Standard,
+                modifiers: KeyMods::default(),
+                text: None,
+                repeat: false,
+            })
+        };
+        let _ = hud.update(Message::RawEvent(press(
+            "j",
+            iced::keyboard::key::Code::KeyJ,
+        )));
+        assert_eq!(hud.query(), "");
+        assert!(hud.browse_mode());
+        assert_eq!(hud.timeline_focus(), Some(2));
+        let _ = hud.update(Message::RawEvent(press(
+            "k",
+            iced::keyboard::key::Code::KeyK,
+        )));
+        assert_eq!(hud.timeline_focus(), Some(1));
+        let _ = hud.update(Message::RawEvent(press(
+            "l",
+            iced::keyboard::key::Code::KeyL,
+        )));
+        assert_eq!(hud.query(), "");
+        assert!(hud.browse_mode());
+        assert_eq!(hud.events_turn_index, Some(0));
+        let _ = hud.update(Message::RawEvent(press(
+            "h",
+            iced::keyboard::key::Code::KeyH,
+        )));
+        assert!(hud.events_turn_index.is_none());
+        assert!(hud.browse_mode());
+    }
+
+    #[test]
     fn events_h_l_steps_the_turn_filter() {
         let mut hud = two_turn_timeline();
         hud.rebuild_events_turn_options();
@@ -10492,7 +10789,7 @@ mod tests {
     }
 
     #[test]
-    fn specific_turn_locks_hl_and_brackets() {
+    fn specific_turn_hl_steps_and_bracket_stays() {
         let mut hud = two_turn_timeline();
         let _ = hud.update(Message::EventsTurnPicked(EventsTurnPick {
             turn_index: Some(0),
@@ -10511,18 +10808,25 @@ mod tests {
                 repeat: false,
             })
         };
-        for (ch, code) in [
-            ("l", iced::keyboard::key::Code::KeyL),
-            ("h", iced::keyboard::key::Code::KeyH),
-            ("]", iced::keyboard::key::Code::BracketRight),
-        ] {
-            let _ = hud.update(Message::RawEvent(press(ch, code)));
-            assert_eq!(
-                hud.events_turn_index,
-                Some(0),
-                "key {ch} must not change turn"
-            );
-        }
+        let _ = hud.update(Message::RawEvent(press(
+            "l",
+            iced::keyboard::key::Code::KeyL,
+        )));
+        assert_eq!(hud.events_turn_index, Some(1));
+        let _ = hud.update(Message::RawEvent(press(
+            "h",
+            iced::keyboard::key::Code::KeyH,
+        )));
+        assert_eq!(hud.events_turn_index, Some(0));
+        let _ = hud.update(Message::RawEvent(press(
+            "]",
+            iced::keyboard::key::Code::BracketRight,
+        )));
+        assert_eq!(
+            hud.events_turn_index,
+            Some(0),
+            "] must not change a selected turn"
+        );
         let _ = hud.update(Message::TimelineKind(KindFilter::Workflows));
         reload_two_turn_page(&mut hud);
         let _ = hud.update(Message::RawEvent(press(
@@ -10670,9 +10974,11 @@ mod tests {
         hud.timeline_focus = Some(2);
         let _ = hud.update(Message::RawEvent(Event::Keyboard(
             keyboard::Event::KeyPressed {
-                key: Key::Character("l".into()),
-                modified_key: Key::Character("l".into()),
-                physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::KeyL),
+                key: Key::Character("]".into()),
+                modified_key: Key::Character("]".into()),
+                physical_key: iced::keyboard::key::Physical::Code(
+                    iced::keyboard::key::Code::BracketRight,
+                ),
                 location: iced::keyboard::Location::Standard,
                 modifiers: KeyMods::default(),
                 text: None,
@@ -13108,16 +13414,18 @@ mod tests {
         assert_eq!(hud.page_role(), MotionRole::Sibling);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::None);
         assert_eq!(hud.page_layer(), PageLayer::Pane);
+        assert_eq!(hud.tab_leaving(), Some(Tab::Turns));
         let _ = hud.update(Message::SetTab(Tab::Turns));
         assert_eq!(hud.page_role(), MotionRole::Sibling);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::None);
+        assert_eq!(hud.tab_leaving(), Some(Tab::Timeline));
         let _ = hud.select_events_turn(Some(0));
         assert_eq!(hud.page_role(), MotionRole::Sibling);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::None);
     }
 
     #[test]
-    fn page_slide_detail_next_and_prev() {
+    fn event_step_fades_incoming_body_not_the_page() {
         let mut hud = hud_with_session();
         hud.reduced_motion = false;
         load_page(
@@ -13132,23 +13440,26 @@ mod tests {
         let _ = hud.update(Message::SelectTimeline(10));
         assert_eq!(hud.page_role(), MotionRole::Push);
         assert_eq!(hud.page_slide(), icedtea::motion::Slide::End);
-        assert_eq!(hud.detail_leaving(), None);
+        assert!(!hud.event_fade_moving());
         let _ = hud.update(Message::TimelineDetailStep(1));
-        assert_eq!(hud.page_role(), MotionRole::Step);
-        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Up);
-        assert_eq!(hud.detail_leaving(), Some(10));
+        assert_eq!(hud.page_role(), MotionRole::Push);
         assert!(hud.is_timeline_open(11));
+        assert!(hud.event_fade_moving());
+        assert!(
+            hud.event_fade_progress() < 0.35,
+            "step must restart the body fade, got {}",
+            hud.event_fade_progress()
+        );
+        let mid = hud.event_fade_progress();
         let _ = hud.update(Message::TimelineDetailStep(-1));
-        assert_eq!(hud.page_role(), MotionRole::Step);
-        assert_eq!(hud.page_slide(), icedtea::motion::Slide::Down);
-        assert_eq!(hud.detail_leaving(), Some(11));
         assert!(hud.is_timeline_open(10));
-        hud.page = motion::role_animation(MotionRole::Step, true, false);
-        let _ = hud.update(Message::Tick);
-        assert_eq!(hud.detail_leaving(), None);
+        assert!(
+            hud.event_fade_progress() < mid.max(0.2),
+            "rapid step must restart from 0"
+        );
         let _ = hud.update(Message::CloseTimelineDetail);
         assert!(hud.timeline_open.is_none());
-        assert_eq!(hud.detail_leaving(), None);
+        assert!(!hud.event_fade_moving());
     }
 
     #[test]
@@ -13173,6 +13484,31 @@ mod tests {
             "tab change reset page progress to {after} (was {mid})"
         );
         assert_eq!(hud.page_role(), MotionRole::Sibling);
+    }
+
+    #[test]
+    fn help_and_context_use_enter_jobs() {
+        let mut hud = Hud {
+            reduced_motion: false,
+            visible: true,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::ToggleHelp);
+        assert!(hud.help_open());
+        assert!(hud.help_visible());
+        assert!(hud.help_progress() < 0.5);
+        let _ = hud.update(Message::ToggleHelp);
+        assert!(!hud.help_open());
+        assert!(hud.help_visible());
+        hud.pointer = Point::new(40.0, 80.0);
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Context));
+        assert_eq!(hud.context_origin(), Some(Point::new(40.0, 80.0)));
+        let paint = hud.context_paint();
+        assert!(paint.is_some());
+        assert!(paint.unwrap().1 < 0.5);
+        let _ = hud.update(Message::ContextDismiss);
+        assert_eq!(hud.context_origin(), None);
+        assert!(hud.context_paint().is_some());
     }
 
     #[test]

@@ -108,13 +108,29 @@ fn catalog_query_runs(query: &str) -> Vec<icedtea::widget::FieldRun> {
         .collect()
 }
 
-fn query_hint_line(hints: Vec<String>, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
+fn query_hint_line(
+    hints: Vec<String>,
+    tea: icedtea::theme::Tokens,
+    progress: f32,
+    held: &str,
+) -> Element<'static, Message> {
     let line = hints.into_iter().take(8).collect::<Vec<_>>().join("   ");
-    if line.is_empty() {
-        Space::new().height(0).into()
+    let shown = if line.is_empty() {
+        held.to_string()
     } else {
-        text(line).size(tea.meta()).color(tea.muted).into()
+        line
+    };
+    if shown.is_empty() || progress <= 0.0 {
+        return Space::new().height(0).into();
     }
+    let face = text(shown).size(tea.meta()).color(tea.muted);
+    icedtea::motion::overlay(
+        face.into(),
+        progress,
+        icedtea::motion::Slide::None,
+        tea,
+        A11y::new("search hints", Role::Status),
+    )
 }
 
 fn catalog_query_ink(kind: QuerySpanKind) -> icedtea::widget::FieldInk {
@@ -483,11 +499,23 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     let hints = hud.query_hints();
     // Keep this column always so the search field is not remounted when
     // hints appear (that drop of focus eats the next keystrokes).
-    let hint: Element<'_, Message> = query_hint_line(hints, tea);
+    let hint: Element<'_, Message> =
+        query_hint_line(hints, tea, hud.hint_progress(), hud.hint_text());
     let search: Element<'_, Message> = column![search, hint]
         .spacing(tea.density.gap() / 2.0)
         .padding(Padding::from([tea.density.gap(), tea.density.inset()]))
         .into();
+    let search = if hud.shake_live() && !hud.browse_mode() {
+        icedtea::motion::attention(
+            search,
+            hud.shake_progress(),
+            icedtea::motion::AttentionFace::Shake,
+            tea,
+            A11y::new("invalid search", Role::Group),
+        )
+    } else {
+        search
+    };
 
     // Spotlight: search → pick → full-width browse. Type again to switch.
     let body: Element<'_, Message> = {
@@ -537,23 +565,24 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
     // Always stack the shell so opening the context menu does not remount
     // selectable editors (iced only paints a selection while they stay focused).
     let mut layers = stack![chrome];
-    if let Some(origin) = hud.context_origin() {
+    if let Some((origin, progress)) = hud.context_paint() {
         layers = layers.push(icedtea::pattern::context_menu(
             hud.context_actions(),
             origin,
             hud.window_size(),
             Message::ContextDismiss,
-            1.0,
+            progress,
             tea,
         ));
     }
     let scene = layers.into();
-    if hud.help_open() {
+    if hud.help_visible() {
         return fade_palette(
             kit::help_modal(
                 scene,
                 &crate::help::help_table_for(hud.key_scope(), hud.key_overlay()),
                 tea,
+                hud.help_progress(),
             ),
             hud,
             tea,
@@ -590,18 +619,20 @@ fn page_body<'a>(
     // OverlayLayer still does not implement Widget::overlay, so pick lists
     // (Diff Turn, Timeline Filter) never open while this wrapper is mounted.
     // List clip state is kept by cover_stack under detail, not by this wrap.
-    if hud.page_layer() != PageLayer::Pane
-        || !hud.page_moving()
-        || matches!(hud.page_role(), MotionRole::Step)
-    {
+    if hud.page_layer() != PageLayer::Pane || !hud.page_moving() {
         return container(child)
             .width(Length::Fill)
             .height(Length::Fill)
             .into();
     }
+    let progress = if matches!(hud.page_role(), MotionRole::Sibling) {
+        crate::motion::fade_through_in(hud.page_progress())
+    } else {
+        hud.page_progress()
+    };
     container(icedtea::motion::overlay(
         child,
-        hud.page_progress(),
+        progress,
         hud.page_slide(),
         tea,
         A11y::new("page", Role::Group),
@@ -754,98 +785,99 @@ fn detail_pane(hud: &Hud) -> Element<'_, Message> {
     if hud.tab() == Tab::Turns && hud.overview().is_some() {
         stack = stack.push(turns_filter(hud));
     }
-    let body: Element<'_, Message> = if hud.overview().is_none() {
+    let incoming = pane_page(hud, hud.tab(), tea);
+    let page = if let Some(prev) = hud.tab_leaving() {
+        if hud.page_moving()
+            && hud.page_layer() == PageLayer::Pane
+            && matches!(hud.page_role(), MotionRole::Sibling)
+        {
+            icedtea::motion::switch(
+                pane_page(hud, prev, tea),
+                incoming,
+                hud.page_progress(),
+                icedtea::motion::SwitchFace::FadeThrough,
+                hud.tokens(),
+                A11y::new("pane", Role::Group),
+            )
+        } else {
+            page_body(incoming, hud, tea)
+        }
+    } else {
+        page_body(incoming, hud, tea)
+    };
+    stack = stack.push(page);
+    container(stack)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+fn pane_page<'a>(hud: &'a Hud, tab: Tab, tea: icedtea::theme::Tokens) -> Element<'a, Message> {
+    let ready = hud.overview().is_some();
+    if tab == Tab::Timeline && ready {
+        return container(timeline_tab(hud))
+            .padding([tea.density.gap(), tea.density.inset()])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
+    if tab == Tab::Turns && ready {
+        return container(turns_tab(hud))
+            .padding([tea.density.gap(), tea.density.inset()])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
+    if tab == Tab::Diff && ready {
+        return container(diff_tab(hud))
+            .padding(Padding {
+                top: 0.0,
+                right: tea.density.inset(),
+                bottom: tea.density.gap(),
+                left: tea.density.inset(),
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
+    if tab == Tab::Overview && ready && overview_virtual_body(hud.overview_section()) {
+        return container(overview_tab(hud))
+            .padding([tea.density.gap(), tea.density.inset()])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
+    if tab == Tab::Notes && ready {
+        return container(notes_tab(hud))
+            .padding([tea.density.gap(), tea.density.inset()])
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+    }
+    let body: Element<'_, Message> = if !ready {
         if !hud.overview_pending().is_empty() {
             busy_pane()
         } else {
             select_session(hud.body_tokens())
         }
     } else {
-        match hud.tab() {
+        match tab {
             Tab::Overview => overview_tab(hud),
-            Tab::Turns | Tab::Timeline | Tab::Diff => column![].into(),
             Tab::Notes => notes_tab(hud),
+            Tab::Turns | Tab::Timeline | Tab::Diff => column![].into(),
         }
     };
-    if hud.tab() == Tab::Timeline && hud.overview().is_some() {
-        stack = stack.push(page_body(
-            container(timeline_tab(hud))
-                .padding([tea.density.gap(), tea.density.inset()])
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-            hud,
-            tea,
-        ));
-    } else if hud.tab() == Tab::Turns && hud.overview().is_some() {
-        stack = stack.push(page_body(
-            container(turns_tab(hud))
-                .padding([tea.density.gap(), tea.density.inset()])
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-            hud,
-            tea,
-        ));
-    } else if hud.tab() == Tab::Diff && hud.overview().is_some() {
-        stack = stack.push(page_body(
-            container(diff_tab(hud))
-                .padding(Padding {
-                    top: 0.0,
-                    right: tea.density.inset(),
-                    bottom: tea.density.gap(),
-                    left: tea.density.inset(),
-                })
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-            hud,
-            tea,
-        ));
-    } else if hud.tab() == Tab::Overview
-        && hud.overview().is_some()
-        && overview_virtual_body(hud.overview_section())
-    {
-        stack = stack.push(page_body(
-            container(overview_tab(hud))
-                .padding([tea.density.gap(), tea.density.inset()])
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-            hud,
-            tea,
-        ));
-    } else if hud.tab() == Tab::Notes && hud.overview().is_some() {
-        stack = stack.push(page_body(
-            container(notes_tab(hud))
-                .padding([tea.density.gap(), tea.density.inset()])
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-            hud,
-            tea,
-        ));
-    } else {
-        stack = stack.push(page_body(
-            icedtea::widget::scroll(
-                container(body)
-                    .padding(tea.density.sheet())
-                    .width(Length::Fill)
-                    .into(),
-                tea,
-                A11y::new("Detail", Role::Group),
-                false,
-                None,
-                None::<fn(f32) -> Message>,
-            ),
-            hud,
-            tea,
-        ));
-    }
-    container(stack)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+    icedtea::widget::scroll(
+        container(body)
+            .padding(tea.density.sheet())
+            .width(Length::Fill)
+            .into(),
+        tea,
+        A11y::new("Detail", Role::Group),
+        false,
+        None,
+        None::<fn(f32) -> Message>,
+    )
 }
 
 /// Session identity under the search bar while browsing (no left rail).
@@ -985,7 +1017,12 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         &catalog_query_runs(hud.timeline_query_draft()),
     ))
     .width(Length::Fill);
-    let hint = query_hint_line(hud.timeline_query_hints(), tea);
+    let hint = query_hint_line(
+        hud.timeline_query_hints(),
+        tea,
+        hud.hint_progress(),
+        hud.hint_text(),
+    );
     column![picks, search, hint]
         .spacing(tea.density.gap())
         .width(Length::Fill)
@@ -1839,7 +1876,12 @@ fn turns_filter(hud: &Hud) -> Element<'_, Message> {
         Some(hud.turns_search_id()),
         &catalog_query_runs(hud.turns_query_draft()),
     );
-    let hint = query_hint_line(hud.turns_query_hints(), tea);
+    let hint = query_hint_line(
+        hud.turns_query_hints(),
+        tea,
+        hud.hint_progress(),
+        hud.hint_text(),
+    );
     column![search, hint]
         .spacing(tea.density.gap() / 2.0)
         .width(Length::Fill)
@@ -1975,23 +2017,24 @@ fn timeline_tab(hud: &Hud) -> Element<'_, Message> {
 }
 
 fn event_detail_cover(hud: &Hud, ix: i64) -> Element<'_, Message> {
-    let incoming = event_detail_pane(hud, ix);
-    let Some(prev) = hud.detail_leaving() else {
-        return incoming;
-    };
-    if prev == ix || !matches!(hud.page_role(), MotionRole::Step) || !hud.page_moving() {
-        return incoming;
+    event_detail_pane(hud, ix)
+}
+
+fn fade_event_body<'a>(
+    hud: &Hud,
+    body: Element<'a, Message>,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    if !hud.event_fade_moving() {
+        return body;
     }
-    let Some(face) = crate::motion::event_switch_face(hud.page_slide()) else {
-        return incoming;
-    };
-    icedtea::motion::switch(
-        event_detail_pane(hud, prev),
-        incoming,
-        hud.page_progress(),
-        face,
-        hud.tokens(),
-        A11y::new("event step", Role::Group),
+    let t = hud.event_fade_progress();
+    icedtea::motion::overlay(
+        body,
+        t,
+        icedtea::motion::Slide::None,
+        tea.fade(t),
+        A11y::new("event body", Role::Group),
     )
 }
 
@@ -2001,10 +2044,13 @@ fn event_detail_cover(hud: &Hud, ix: i64) -> Element<'_, Message> {
 pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
     let tea = hud.body_tokens();
     let Some(ev) = hud.timeline_events().iter().find(|e| e.index == ix) else {
-        return column![event_detail_chrome(hud, ix, None, tea), busy_pane(),]
-            .spacing(10)
-            .height(Length::Fill)
-            .into();
+        return column![
+            event_detail_chrome(hud, ix, None, tea),
+            fade_event_body(hud, busy_pane(), tea),
+        ]
+        .spacing(10)
+        .height(Length::Fill)
+        .into();
     };
     let (_, ev_marks) = hud.card_marks();
     let mark = ev_marks.get(&ix).cloned();
@@ -2028,10 +2074,13 @@ pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
             None,
             None::<fn(f32) -> Message>,
         );
-        return column![event_detail_chrome(hud, ix, Some(ev), tea), scroll]
-            .spacing(10)
-            .height(Length::Fill)
-            .into();
+        return column![
+            event_detail_chrome(hud, ix, Some(ev), tea),
+            fade_event_body(hud, scroll, tea),
+        ]
+        .spacing(10)
+        .height(Length::Fill)
+        .into();
     }
     if ev.tool_name == "workflow" && !children.is_empty() {
         let inspect = icedtea::widget::scroll(
@@ -2052,12 +2101,20 @@ pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
         );
         return column![
             event_detail_chrome(hud, ix, Some(ev), tea),
-            container(inspect)
-                .width(Length::Fill)
-                .height(Length::Fixed(WORKFLOW_INSPECT_H)),
-            container(workflow_child_list(hud, children))
-                .width(Length::Fill)
-                .height(Length::Fill),
+            fade_event_body(
+                hud,
+                column![
+                    container(inspect)
+                        .width(Length::Fill)
+                        .height(Length::Fixed(WORKFLOW_INSPECT_H)),
+                    container(workflow_child_list(hud, children))
+                        .width(Length::Fill)
+                        .height(Length::Fill),
+                ]
+                .spacing(10)
+                .into(),
+                tea,
+            ),
         ]
         .spacing(10)
         .height(Length::Fill)
@@ -2079,10 +2136,13 @@ pub(crate) fn event_detail_pane(hud: &Hud, ix: i64) -> Element<'_, Message> {
         None,
         None::<fn(f32) -> Message>,
     );
-    column![event_detail_chrome(hud, ix, Some(ev), tea), scroll]
-        .spacing(10)
-        .height(Length::Fill)
-        .into()
+    column![
+        event_detail_chrome(hud, ix, Some(ev), tea),
+        fade_event_body(hud, scroll, tea),
+    ]
+    .spacing(10)
+    .height(Length::Fill)
+    .into()
 }
 
 fn event_detail_chrome(
@@ -2509,7 +2569,7 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             .height(Length::Fill)
             .into()
     };
-    let compose = if hud.composing_note() {
+    let compose = if hud.compose_visible() {
         let form = icedtea::widget::scroll(
             container(notes_compose_form(hud))
                 .width(Length::Fill)
@@ -2526,12 +2586,18 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
             None,
             None::<fn(f32) -> Message>,
         );
-        Some(
-            container(form)
-                .width(Length::Fill)
-                .height(Length::Fill)
-                .into(),
-        )
+        let sheet: Element<'_, Message> = container(form)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into();
+        Some(icedtea::motion::expand(
+            sheet,
+            hud.compose_progress(),
+            0.0,
+            icedtea::motion::Axis::Block,
+            tea,
+            A11y::new("note compose", Role::Group),
+        ))
     } else {
         None
     };
@@ -2602,7 +2668,19 @@ fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
     .spacing(tea.density.gap())
     .align_y(Alignment::Center);
     if editing {
-        actions = actions.push(note_quiet_btn(del, Message::RequestDelete(nid), tea));
+        let del_btn = note_quiet_btn(del, Message::RequestDelete(nid.clone()), tea);
+        let del_btn = if hud.shake_live() && hud.note_delete_armed() == nid {
+            icedtea::motion::attention(
+                del_btn,
+                hud.shake_progress(),
+                icedtea::motion::AttentionFace::Shake,
+                tea,
+                A11y::new("delete note", Role::Group),
+            )
+        } else {
+            del_btn
+        };
+        actions = actions.push(del_btn);
     }
     icedtea::widget::group_box(
         if editing { "Edit note" } else { "Add note" },
@@ -3847,7 +3925,7 @@ mod tests {
         assert!(!prod.contains("fn look_pane"));
         assert!(!prod.contains("pattern::drawer"));
         assert!(prod.contains("kit::status_empty"));
-        assert!(prod.contains("help_open()"));
+        assert!(prod.contains("help_visible()"));
         assert!(prod.contains("overview_fields"));
         let overview = prod
             .split("fn overview_tab")
@@ -4245,7 +4323,7 @@ mod tests {
             "Notes list is a pixel scroller; virtual_column wheel steps the first card height"
         );
         assert!(body.contains("Length::Fill"));
-        assert!(body.contains("composing_note"));
+        assert!(body.contains("compose_visible"));
         assert!(body.contains("StartNote"));
         assert!(body.contains("notes_compose_form"));
         assert!(body.contains("note_form_schema"));
@@ -4383,8 +4461,8 @@ mod tests {
         );
         assert!(page.contains("page_moving()"));
         assert!(
-            page.contains("MotionRole::Step"),
-            "event step uses switch, not overlay cover"
+            page.contains("fade_through_in"),
+            "same-tab list replace uses FadeThrough incoming"
         );
         let cover = prod
             .split("fn event_detail_cover")
@@ -4393,8 +4471,23 @@ mod tests {
             .split("fn event_detail_pane")
             .next()
             .expect("event_detail_cover body");
-        assert!(cover.contains("motion::switch"));
-        assert!(cover.contains("event_switch_face"));
+        assert!(cover.contains("event_detail_pane"));
+        assert!(!cover.contains("motion::switch"));
+        let pane = prod
+            .split("fn detail_pane")
+            .nth(1)
+            .expect("detail_pane")
+            .split("fn pane_page")
+            .next()
+            .expect("detail_pane body");
+        assert!(pane.contains("SwitchFace::FadeThrough"));
+        assert!(pane.contains("tab_leaving"));
+        let fade = prod
+            .split("fn fade_event_body")
+            .nth(1)
+            .expect("fade_event_body");
+        assert!(fade.contains("event_fade_moving"));
+        assert!(fade.contains("Slide::None"));
     }
 
     #[test]

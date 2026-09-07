@@ -140,14 +140,17 @@ Cursor (`cursor`) are registered.
   Command+C / Control+C copies the focused quote body (and writes
   the host pasteboard on macOS with `pbcopy`).
   Selected list rows use a quiet wash. A focused list has no pane ring.
-  Stepping Timeline event detail (`j` / `k`) uses icedtea shared-axis
-  motion.
+  Stepping Timeline event detail (`j` / `k`) fades the incoming
+  event body (chrome stays).
 - Clearing catalog or Timeline search remounts the idle list (not the
   leftover short search window). Leaving a session (`u` or the logo)
   puts the catalog search back.
 - Timeline `h` / `l` (Left / Right) step the Turn filter the same way
   as the terminal app, including when a turn is selected. `]` jumps
   to the next Filter hit while All turns is selected.
+- Opening a session and landing on Timeline leaves catalog search, so
+  `h` / `j` / `k` / `l` move events and turns. `/` focuses that pane's
+  search. Type in Search sessions (or `u`) to switch sessions.
 
 ### Control
 

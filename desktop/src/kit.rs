@@ -149,6 +149,7 @@ pub fn help_modal<'a>(
     backdrop: Element<'a, Message>,
     table: &icedtea::action::ActionTable<Message>,
     tea: Tokens,
+    progress: f32,
 ) -> Element<'a, Message> {
     let heading = format!("Keyboard shortcuts · anqa {}", crate::VERSION);
     let list = icedtea::pattern::cheatsheet(table, "", tea);
@@ -168,7 +169,7 @@ pub fn help_modal<'a>(
     let card = container(sheet)
         .width(Length::Fixed(560.0))
         .height(Length::Fixed(520.0));
-    icedtea::pattern::modal_card(backdrop, card.into(), 1.0, tea)
+    icedtea::pattern::modal_card(backdrop, card.into(), progress, tea)
 }
 
 #[cfg(test)]
@@ -288,7 +289,7 @@ mod tests {
             notes_composing: false,
         });
         let backdrop = status_empty("HUD", "backdrop", tea);
-        let _ = help_modal(backdrop, &table, tea);
+        let _ = help_modal(backdrop, &table, tea, 1.0);
     }
 
     #[test]

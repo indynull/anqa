@@ -1,8 +1,9 @@
-//! HUD motion roles: timings, easing, and interruptible page/overlay clocks.
+//! HUD motion: icedtea jobs, interruptible page/overlay clocks, chrome runs.
 
 use std::time::{Duration, Instant};
 
 use iced::Animation;
+use icedtea::motion::{AttentionFace, Axis, Enter, Job, Run, SwitchFace};
 
 use crate::model::Tab;
 
@@ -10,16 +11,18 @@ use crate::model::Tab;
 pub const PRESENT_MS: u64 = 220;
 /// Palette dismiss (Esc hide). Shorter than present.
 pub const DISMISS_MS: u64 = 180;
-/// Sibling tab / turn-scope fade.
-pub const SIBLING_MS: u64 = 180;
-/// Hierarchical enter (session pick, open event).
+/// Hierarchical enter (session pick, first event).
 pub const PUSH_MS: u64 = 240;
-/// Hierarchical leave (event close, back to session list).
+/// Hierarchical leave (back to session list).
 pub const POP_MS: u64 = 200;
-/// Next / previous event shared Y-axis.
-pub const STEP_MS: u64 = 180;
+/// Incoming event-body fade while chrome stays.
+pub const EVENT_FADE_MS: u64 = 120;
+/// Search-hint appear / empty-state fade.
+pub const HINT_MS: u64 = 100;
 
-/// What the operator is doing. Each job has one duration, ease, and slide rule.
+/// What the operator is doing. Page and palette clocks keep iced
+/// [`Animation`] so a mid-flight retune keeps progress. Chrome jobs
+/// ([`Run`]) start from rest.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MotionRole {
     Present,
@@ -27,7 +30,6 @@ pub enum MotionRole {
     Sibling,
     Push,
     Pop,
-    Step,
     Disclose,
     None,
 }
@@ -50,19 +52,29 @@ impl MotionRole {
         Duration::from_millis(match self {
             Self::Present => PRESENT_MS,
             Self::Dismiss => DISMISS_MS,
-            Self::Sibling => SIBLING_MS,
+            Self::Sibling => self.job().duration(true, false).as_millis() as u64,
             Self::Push => PUSH_MS,
             Self::Pop => POP_MS,
-            Self::Step => STEP_MS,
             Self::Disclose => icedtea::m3::motion::EXPAND.millis(),
             Self::None => 0,
         })
     }
 
-    /// Enter jobs decelerate; dismiss accelerates.
+    /// icedtea job this role drives.
+    pub fn job(self) -> Job {
+        match self {
+            Self::Present | Self::Dismiss | Self::Push | Self::Pop => Job::Enter(Enter::Sheet),
+            Self::Sibling => Job::Switch(SwitchFace::FadeThrough),
+            Self::Disclose => Job::Disclose(Axis::Block),
+            Self::None => Job::Value,
+        }
+    }
+
+    /// Enter jobs decelerate; dismiss accelerates; pane fade uses the switch job.
     pub fn ease(self) -> icedtea::m3::Ease {
         match self {
             Self::Dismiss => icedtea::m3::Ease::EmphasizedAccelerate,
+            Self::Sibling => self.job().ease(true),
             _ => icedtea::m3::Ease::EmphasizedDecelerate,
         }
     }
@@ -100,10 +112,10 @@ pub fn tab_role(from: Tab, to: Tab) -> MotionRole {
     }
 }
 
-/// First open is push; stepping to another event is a shared Y-axis.
+/// First open is a hierarchical push. Stepping another event is not a page job.
 pub fn event_open_role(already_open: bool) -> MotionRole {
     if already_open {
-        MotionRole::Step
+        MotionRole::None
     } else {
         MotionRole::Push
     }
@@ -112,27 +124,6 @@ pub fn event_open_role(already_open: bool) -> MotionRole {
 /// Leave full-pane event detail.
 pub fn event_close_role() -> MotionRole {
     MotionRole::Pop
-}
-
-/// Incoming slide for next / previous event.
-pub fn event_step_slide(delta: i32) -> icedtea::motion::Slide {
-    if delta > 0 {
-        icedtea::motion::Slide::Up
-    } else if delta < 0 {
-        icedtea::motion::Slide::Down
-    } else {
-        icedtea::motion::Slide::None
-    }
-}
-
-/// Shared-axis face for a vertical event step, or none for push/pop slides.
-pub fn event_switch_face(slide: icedtea::motion::Slide) -> Option<icedtea::motion::SwitchFace> {
-    match slide {
-        icedtea::motion::Slide::Up | icedtea::motion::Slide::Down => {
-            Some(icedtea::motion::SwitchFace::SharedAxis(slide))
-        }
-        _ => None,
-    }
 }
 
 /// Pick a session into browse.
@@ -155,6 +146,77 @@ pub fn role_animation(role: MotionRole, open: bool, reduced: bool) -> Animation<
 /// Note expander height.
 pub fn disclose_animation(open: bool, reduced: bool) -> Animation<bool> {
     icedtea::motion::expand_animation(open, reduced)
+}
+
+/// Palette / help / menu / pane / disclose / fade / shake clocks.
+pub fn palette_job() -> Job {
+    Job::Enter(Enter::Sheet)
+}
+
+pub fn help_job() -> Job {
+    Job::Enter(Enter::Dialog)
+}
+
+pub fn menu_job() -> Job {
+    Job::Enter(Enter::Menu)
+}
+
+pub fn pane_job() -> Job {
+    Job::Switch(SwitchFace::FadeThrough)
+}
+
+pub fn disclose_job() -> Job {
+    Job::Disclose(Axis::Block)
+}
+
+pub fn event_fade_job() -> Job {
+    Job::Value
+}
+
+pub fn hint_job() -> Job {
+    Job::Value
+}
+
+pub fn shake_job() -> Job {
+    Job::Attention(AttentionFace::Shake)
+}
+
+/// Resting chrome run. Enter jobs hold the house present length.
+pub fn run_job(job: Job, open: bool, reduced: bool) -> Run {
+    let run = icedtea::motion::run(job, open, reduced);
+    match job {
+        Job::Enter(Enter::Sheet | Enter::Dialog) => run.lasting(Duration::from_millis(PRESENT_MS)),
+        Job::Value => run.lasting(Duration::from_millis(HINT_MS)),
+        _ => run,
+    }
+}
+
+/// Incoming event-body fade. Always starts from 0 so a rapid step replaces.
+pub fn start_event_fade(reduced: bool, now: Instant) -> Run {
+    let mut run = rest_event_fade(reduced);
+    if reduced {
+        return run;
+    }
+    run = icedtea::motion::run(event_fade_job(), false, false)
+        .lasting(Duration::from_millis(EVENT_FADE_MS));
+    run.go(true, now);
+    run
+}
+
+/// Event body at rest (fully visible).
+pub fn rest_event_fade(reduced: bool) -> Run {
+    icedtea::motion::run(event_fade_job(), true, reduced)
+        .lasting(Duration::from_millis(EVENT_FADE_MS))
+}
+
+/// FadeThrough incoming opacity (blank, then fade in).
+pub fn fade_through_in(progress: f32) -> f32 {
+    SwitchFace::FadeThrough.incoming_fade(progress)
+}
+
+/// Drive a chrome run toward open or closed.
+pub fn go_run(run: &mut Run, open: bool, now: Instant) {
+    run.go(open, now);
 }
 
 /// Continue an in-flight page fade or start a new 0→1 job.
@@ -250,26 +312,10 @@ mod tests {
     }
 
     #[test]
-    fn event_open_close_and_step_map_to_push_pop_shared_axis() {
+    fn event_open_is_push_and_step_is_not_a_page_job() {
         assert_eq!(event_open_role(false), MotionRole::Push);
-        assert_eq!(event_open_role(true), MotionRole::Step);
+        assert_eq!(event_open_role(true), MotionRole::None);
         assert_eq!(event_close_role(), MotionRole::Pop);
-        assert_eq!(event_step_slide(1), icedtea::motion::Slide::Up);
-        assert_eq!(event_step_slide(-1), icedtea::motion::Slide::Down);
-        assert_eq!(event_step_slide(0), icedtea::motion::Slide::None);
-        assert_eq!(
-            event_switch_face(icedtea::motion::Slide::Up),
-            Some(icedtea::motion::SwitchFace::SharedAxis(
-                icedtea::motion::Slide::Up
-            ))
-        );
-        assert_eq!(
-            event_switch_face(icedtea::motion::Slide::Down),
-            Some(icedtea::motion::SwitchFace::SharedAxis(
-                icedtea::motion::Slide::Down
-            ))
-        );
-        assert_eq!(event_switch_face(icedtea::motion::Slide::End), None);
         assert_eq!(
             visual_slide(MotionRole::Push, icedtea::motion::Slide::End, false),
             icedtea::motion::Slide::End
@@ -282,6 +328,31 @@ mod tests {
             visual_slide(MotionRole::Push, icedtea::motion::Slide::End, true),
             icedtea::motion::Slide::None
         );
+        assert_eq!(
+            tab_role(Tab::Turns, Tab::Timeline).job(),
+            Job::Switch(SwitchFace::FadeThrough)
+        );
+        assert_eq!(help_job(), Job::Enter(Enter::Dialog));
+        assert_eq!(menu_job(), Job::Enter(Enter::Menu));
+        assert_eq!(disclose_job(), Job::Disclose(Axis::Block));
+        assert_eq!(shake_job(), Job::Attention(AttentionFace::Shake));
+    }
+
+    #[test]
+    fn event_fade_restarts_from_zero() {
+        let started = Instant::now() - Duration::from_millis(80);
+        let mid = start_event_fade(false, started);
+        let now = Instant::now();
+        let p = mid.progress(now);
+        assert!(p > 0.1 && p < 1.0, "mid-step fade {p}");
+        let next = start_event_fade(false, now);
+        assert!(
+            next.progress(now) < 0.15,
+            "rapid step must restart, got {}",
+            next.progress(now)
+        );
+        let snap = start_event_fade(true, now);
+        assert!((snap.progress(now) - 1.0).abs() < 0.01);
     }
 
     #[test]
