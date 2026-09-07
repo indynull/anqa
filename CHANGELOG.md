@@ -123,7 +123,8 @@ Cursor (`cursor`) are registered.
   Stepping Timeline event detail (`j` / `k`) uses icedtea shared-axis
   motion.
 - Clearing catalog or Timeline search remounts the idle list (not the
-  leftover short search window).
+  leftover short search window). Leaving a session (`u` or the logo)
+  puts the catalog search back.
 
 ### Control
 

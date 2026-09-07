@@ -1085,9 +1085,9 @@ impl Hud {
                         !self.overview_sid.is_empty() && sid == self.overview_sid
                     }
                 });
-                // Spotlight: pick → clear search → full-width browse.
-                self.query.clear();
-                self.abandon_catalog_search();
+                // Spotlight: pick → clear the field → full-width browse.
+                // Keep the committed catalog query so sessions.home can restore it.
+                self.park_catalog_query();
                 let keep = if !path.is_empty() {
                     path.clone()
                 } else {
@@ -1703,14 +1703,13 @@ impl Hud {
                 if sid.is_empty() && path.is_empty() {
                     return Task::none();
                 }
-                // Same as click: clear search so layout leaves the picker.
+                // Same as click: clear the field so layout leaves the picker.
                 self.go_page(
                     motion::session_enter_role(),
                     PageLayer::Browse,
                     icedtea::motion::Slide::End,
                 );
-                self.query.clear();
-                self.abandon_catalog_search();
+                self.park_catalog_query();
                 let keep = if !path.is_empty() {
                     path.clone()
                 } else {
@@ -5634,21 +5633,36 @@ impl Hud {
         true
     }
 
-    /// Leave browse (and any child) for Recent + session search.
+    /// Leave browse (and any child) for the session list.
     fn go_sessions_home(&mut self) -> Task<Message> {
         self.go_page(
             motion::session_leave_role(),
             PageLayer::Browse,
             icedtea::motion::Slide::Start,
         );
-        Task::batch([self.return_to_spotlight(), self.on_focus_search(0)])
+        let resume = !self.catalog_query.trim().is_empty();
+        let reset = self.return_to_picker(resume);
+        let search = if resume {
+            self.refresh_catalog_search()
+        } else {
+            Task::none()
+        };
+        Task::batch([reset, search, self.on_focus_search(0)])
     }
 
     /// Summon lands on Spotlight (Recent + search), never the last open session.
     fn return_to_spotlight(&mut self) -> Task<Message> {
-        self.query.clear();
-        self.abandon_catalog_search();
-        self.spotlight_limit = SPOTLIGHT_RECENT;
+        self.return_to_picker(false)
+    }
+
+    fn return_to_picker(&mut self, resume_search: bool) -> Task<Message> {
+        if resume_search {
+            self.query.clone_from(&self.catalog_query);
+        } else {
+            self.query.clear();
+            self.abandon_catalog_search();
+            self.spotlight_limit = SPOTLIGHT_RECENT;
+        }
         self.help_open = false;
         let reset = self.reset_detail_chrome();
         self.parent_stack.clear();
@@ -6805,6 +6819,15 @@ struct TimelineFetch {
 }
 
 impl Hud {
+    fn park_catalog_query(&mut self) {
+        if !self.query.trim().is_empty() {
+            self.catalog_query.clone_from(&self.query);
+        }
+        self.query.clear();
+        self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
+        self.catalog_search_pending = false;
+    }
+
     fn abandon_catalog_search(&mut self) {
         self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
         self.catalog_search_pending = false;
@@ -7454,6 +7477,58 @@ mod tests {
         let _ = hud.on_key(Key::Character("u".into()), KeyMods::default());
         assert!(!hud.browse_mode());
         assert!(hud.overview.is_none());
+    }
+
+    #[test]
+    fn sessions_home_restores_catalog_search() {
+        let mut hud = Hud {
+            all_sessions: vec![
+                SessionRow {
+                    session_id: "pi-1".into(),
+                    title: "Pi one".into(),
+                    harness: "pi".into(),
+                    sort_epoch: 2.0,
+                    ..SessionRow::default()
+                },
+                SessionRow {
+                    session_id: "gk-1".into(),
+                    title: "Grok".into(),
+                    harness: "grok".into(),
+                    sort_epoch: 1.0,
+                    ..SessionRow::default()
+                },
+            ],
+            ..Hud::default()
+        };
+        hud.rerank_visible();
+        let _ = hud.update(Message::SearchChanged("harness:pi".into()));
+        let gen = hud.catalog_search_gen;
+        let _ = hud.update(Message::CatalogSearchApply(gen));
+        let _ = hud.update(Message::ListSearchLoaded {
+            gen,
+            result: Ok(json!({
+                "sessions": [{
+                    "sessionId": "pi-1",
+                    "title": "Pi one",
+                    "harness": "pi"
+                }]
+            })),
+        });
+        assert_eq!(hud.sessions().len(), 1);
+        let _ = hud.update(Message::SelectSession(0));
+        assert!(hud.browse_mode());
+        assert!(hud.query().is_empty());
+        let _ = hud.update(Message::SessionsHome);
+        assert!(!hud.browse_mode());
+        assert_eq!(hud.query(), "harness:pi");
+        assert_eq!(hud.catalog_query, "harness:pi");
+        assert_eq!(
+            hud.sessions()
+                .iter()
+                .map(|r| r.session_id.as_str())
+                .collect::<Vec<_>>(),
+            ["pi-1"]
+        );
     }
 
     #[test]
