@@ -1027,7 +1027,7 @@ def warm_timeline_search(session_dir: Path) -> None:
     _segs, turns = SessionOverview.turn_view(sd, events)
     ensure_indexed(
         events,
-        key=str(sd.resolve()),
+        key=catalog_session_key(sd),
         stamp=require_adapter(sd).timeline_stamp(sd),
         turns=turns,
     )

@@ -814,9 +814,9 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _session_control_ref(self) -> str:
         """Session path for control RPCs (id lookup is a host-tree walk)."""
-        from ...harness.ref import parse_session_ref_string
+        from ...harness.ref import catalog_session_key, parse_session_ref_string
 
-        raw = str(self.session_dir)
+        raw = catalog_session_key(self.session_dir)
         if parse_session_ref_string(raw) is not None:
             return raw
         try:
@@ -827,7 +827,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             pass
         if self.meta is not None and (self.meta.harness or "").strip():
             return f"{self.meta.harness}:{self.meta.session_id}"
-        return str(self.session_dir)
+        return raw
 
     def _control_access(self) -> RemoteSessionAccess:
         """Attached session access, or raise if the owner is missing."""

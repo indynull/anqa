@@ -160,7 +160,9 @@ Cursor (`cursor`) are registered.
 - Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
   free. Quitting a client leaves anqad running. A store fault
   (OpenCode sqlite, a native panic) returns a control error and
-  stays in the owner log. The owner process does not exit.
+  stays in the owner log. The owner process does not exit. Opening
+  a store-backed catalog row uses `harness:id`, so two OpenCode
+  sessions do not share one list key.
 - `protocolVersion` is semver (`1.0.0`), independent of the product
   version. Same major keeps a live owner; a major bump is the only
   incompatible handshake change.

@@ -12,7 +12,7 @@ from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from ..harness.ref import SessionRef, parse_session_ref_string
+from ..harness.ref import SessionRef, catalog_session_key, parse_session_ref_string
 from ..harness.registry import adapter, harness_product, ref_from_path, require_adapter
 from ..models import (
     JsonObject,
@@ -1009,9 +1009,12 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     sid = str(row.get("sessionId") or "").strip()
     if not path_raw and not loc_raw and not sid:
         return None
-    if loc_raw:
+    path_key = catalog_session_key(path_raw) if path_raw else ""
+    if parse_session_ref_string(path_key) is not None:
+        session_dir = Path(path_key)
+    elif loc_raw:
         session_dir = Path(loc_raw)
-    elif path_raw and (Path(path_raw).exists() or parse_session_ref_string(path_raw) is not None):
+    elif path_raw and Path(path_raw).exists():
         session_dir = Path(path_raw)
     else:
         session_dir = Path(sid)

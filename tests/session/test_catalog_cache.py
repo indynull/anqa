@@ -610,6 +610,30 @@ def test_session_meta_from_catalog_row_harness_path_binds_adapter() -> None:
     assert require_adapter(meta.session_dir).id == "grok"
 
 
+def test_session_meta_from_catalog_row_keeps_harness_id_when_locator_is_shared() -> None:
+    """Store-backed rows share one locator file. Home list keys must stay unique."""
+    db = "/tmp/anqa-shared-opencode.db"
+    first = session_meta_from_catalog_row(
+        {
+            "sessionId": "ses_a",
+            "path": "opencode:ses_a",
+            "locator": db,
+            "harness": "opencode",
+        }
+    )
+    second = session_meta_from_catalog_row(
+        {
+            "sessionId": "ses_b",
+            "path": "opencode:ses_b",
+            "locator": db,
+            "harness": "opencode",
+        }
+    )
+    assert first is not None and second is not None
+    assert str(first.session_dir) == "opencode:ses_a"
+    assert str(second.session_dir) == "opencode:ses_b"
+
+
 def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> None:
     host = tmp_path / "sessions"
     sess = host / "%2Fproj" / "019fe503-d45c-7320-904e-cfa8836c361c"

@@ -298,9 +298,18 @@ class AnqaApp(App):
         self._control_attach_only: bool = bool(control_attach_only)
         self._control_notify_stop: asyncio.Event | None = None
         self._catalog_revision: int = 0
-        self._initial_session = (
-            Path(initial_session).expanduser().resolve() if initial_session is not None else None
-        )
+        if initial_session is None:
+            self._initial_session = None
+        else:
+            from ..harness.ref import catalog_session_key, parse_session_ref_string
+
+            raw = Path(initial_session)
+            key = catalog_session_key(raw)
+            self._initial_session = (
+                Path(key)
+                if parse_session_ref_string(key) is not None
+                else raw.expanduser().resolve()
+            )
         self._initial_prompt_index = initial_prompt_index
         self._self_test_summary: str = ""
         self._copy_notify_at = 0.0

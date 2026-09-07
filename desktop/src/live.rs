@@ -390,6 +390,14 @@ pub fn session_rpc_ref(path: &str, session_id: &str) -> String {
     if is_harness_ref(path) {
         return path.to_string();
     }
+    if let Some(name) = std::path::Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+    {
+        if is_harness_ref(name) && !std::path::Path::new(path).exists() {
+            return name.to_string();
+        }
+    }
     session_id.trim().to_string()
 }
 
@@ -1703,6 +1711,10 @@ mod tests {
         assert_eq!(session_rpc_ref("/no/such/anqa-hud-session", "uuid"), "uuid");
         assert_eq!(session_rpc_ref("", "uuid"), "uuid");
         assert_eq!(session_rpc_ref("grok:ses_abc", "ses_abc"), "grok:ses_abc");
+        assert_eq!(
+            session_rpc_ref("/cwd/opencode:ses_abc", "ses_abc"),
+            "opencode:ses_abc"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
