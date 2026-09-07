@@ -1020,7 +1020,9 @@ def build_session_diff(session_dir: Path) -> JsonObject:
 
 def warm_timeline_search(session_dir: Path) -> None:
     """Index *session_dir* so later ``session/timeline`` queries only read."""
-    sd = Path(session_dir)
+    from ..harness.ref import catalog_session_key
+
+    sd = Path(catalog_session_key(session_dir))
     events = require_adapter(sd).parse_timeline(sd)
     _segs, turns = SessionOverview.turn_view(sd, events)
     ensure_indexed(

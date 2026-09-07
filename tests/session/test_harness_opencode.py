@@ -24,23 +24,23 @@ _FIXTURE_DB = (
 )
 
 
-def _install_store() -> Path:
-    dest = Path.home() / ".local" / "share" / "opencode" / "opencode.db"
-    dest.parent.mkdir(parents=True, exist_ok=True)
+def _install_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    dest = tmp_path / "opencode.db"
     shutil.copy2(_FIXTURE_DB, dest)
+    monkeypatch.setattr("anqa.harness.opencode.default_db_path", lambda: dest)
     return dest
 
 
-def test_discover_skips_child_sessions() -> None:
-    _install_store()
+def test_discover_skips_child_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     refs = OpenCodeAdapter().discover()
     assert [r.session_id for r in refs] == ["ses_running", "ses_probe"]
     assert refs[0].harness == OPENCODE_HARNESS_ID
     assert refs[1].ref_string() == "opencode:ses_probe"
 
 
-def test_catalog_lists_opencode_sessions() -> None:
-    _install_store()
+def test_catalog_lists_opencode_sessions(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     rows = list_session_catalog(include_host=True)
     by_id = {str(row["sessionId"]): row for row in rows}
     assert "ses_probe" in by_id
@@ -52,10 +52,12 @@ def test_catalog_lists_opencode_sessions() -> None:
     assert by_id["ses_running"]["status"] == "running"
 
 
-def test_list_meta_does_not_replay_event_table(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_list_meta_does_not_replay_event_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     import anqa.harness.opencode as oc
 
-    db = _install_store()
+    db = _install_store(tmp_path, monkeypatch)
     con = sqlite3.connect(db)
     try:
         con.execute(
@@ -80,8 +82,8 @@ def test_list_meta_does_not_replay_event_table(monkeypatch: pytest.MonkeyPatch) 
     assert meta.context_tokens_used == 35
 
 
-def test_load_meta_and_timeline() -> None:
-    _install_store()
+def test_load_meta_and_timeline(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     probe = Path("opencode:ses_probe")
     meta = require_adapter(probe).load_meta(probe)
     assert meta.harness == OPENCODE_HARNESS_ID
@@ -99,16 +101,16 @@ def test_load_meta_and_timeline() -> None:
     assert tool.raw_input.as_str("command") == "echo PROBE_OK"
 
 
-def test_delete_session_removes_row() -> None:
-    _install_store()
+def test_delete_session_removes_row(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     stats = delete_session_dirs([Path("opencode:ses_probe")])
     assert int(stats["deleted"] or 0) == 1
     with pytest.raises(FileNotFoundError):
         require_adapter(Path("opencode:ses_probe")).load_meta(Path("opencode:ses_probe"))
 
 
-def test_running_session_is_not_complete() -> None:
-    _install_store()
+def test_running_session_is_not_complete(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     assert_adapter_turn(Path("opencode:ses_probe"), "complete")
     assert_adapter_turn(Path("opencode:ses_running"), "running")
 
@@ -131,8 +133,10 @@ def _insert_session(db: Path, sid: str, messages: list[str]) -> None:
         con.close()
 
 
-def test_list_status_last_user_and_later_open_after_close() -> None:
-    db = _install_store()
+def test_list_status_last_user_and_later_open_after_close(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db = _install_store(tmp_path, monkeypatch)
     _insert_session(db, "ses_user", ['{"role":"user","time":{"created":1}}'])
     _insert_session(
         db,
@@ -146,8 +150,10 @@ def test_list_status_last_user_and_later_open_after_close() -> None:
     assert_adapter_turn(Path("opencode:ses_later"), "idle")
 
 
-def test_overview_stats_count_timeline_tools() -> None:
-    _install_store()
+def test_overview_stats_count_timeline_tools(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _install_store(tmp_path, monkeypatch)
     ref = OpenCodeAdapter().ref_for_id("ses_probe")
     assert ref is not None
     ov = session_overview(ref)
@@ -160,8 +166,8 @@ def test_overview_stats_count_timeline_tools() -> None:
     assert tools.get("bash", 0) >= 1
 
 
-def test_adapted_timeline_page() -> None:
-    _install_store()
+def test_adapted_timeline_page(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     ref = OpenCodeAdapter().ref_for_id("ses_probe")
     assert ref is not None
     page = session_timeline(ref)
@@ -171,8 +177,8 @@ def test_adapted_timeline_page() -> None:
     assert "PROBE_OK" in texts
 
 
-def test_task_tool_emits_subagent_bookends() -> None:
-    _install_store()
+def test_task_tool_emits_subagent_bookends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     adapter = OpenCodeAdapter()
     assert adapter.ref_for_id("ses_child") is not None
     probe = Path("opencode:ses_probe")
@@ -196,8 +202,8 @@ def test_task_tool_emits_subagent_bookends() -> None:
     assert runs[0]["childPath"] == "opencode:ses_child"
 
 
-def test_export_bundle_from_harness_ref(tmp_path: Path) -> None:
-    _install_store()
+def test_export_bundle_from_harness_ref(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     dest = tmp_path / "bundle.tar.gz"
     result = export_session_bundle(Path("opencode:ses_probe"), dest=dest)
     assert dest.is_file()
@@ -215,8 +221,8 @@ def test_export_bundle_from_harness_ref(tmp_path: Path) -> None:
     assert "ses_probe/session.json" in members
 
 
-def test_stamps_and_bind_locator() -> None:
-    db = _install_store()
+def test_stamps_and_bind_locator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    db = _install_store(tmp_path, monkeypatch)
     adapter = OpenCodeAdapter()
     stamp = adapter.timeline_stamp("opencode:ses_probe")
     assert stamp[0] > 0
@@ -234,8 +240,8 @@ def test_harness_query_token() -> None:
     assert not row_matches_query(row, "harness:grok")
 
 
-def test_require_adapter_path_loads_meta() -> None:
-    _install_store()
+def test_require_adapter_path_loads_meta(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_store(tmp_path, monkeypatch)
     meta = require_adapter(Path("opencode:ses_probe")).load_meta(Path("opencode:ses_probe"))
     assert meta.session_id == "ses_probe"
     assert meta.title == "Reply with PROBE_OK"
@@ -249,12 +255,14 @@ def test_wal_write_is_a_list_rebuild_path() -> None:
     assert CatalogWatchApply.list_rebuild_path(Path("/store/noise.bin")) is False
 
 
-def test_wal_event_adds_new_opencode_session(tmp_path: Path) -> None:
+def test_wal_event_adds_new_opencode_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A WAL write remetas the sqlite store so a new session appears."""
     from anqa.control.daemon import apply_fs_catalog_events
     from anqa.session.catalog import SessionCatalogCache
 
-    db = _install_store()
+    db = _install_store(tmp_path, monkeypatch)
     traces = tmp_path / "traces"
     traces.mkdir()
     cache = SessionCatalogCache(traces_path=traces, include_host=True, ttl=3600.0)
@@ -474,3 +482,45 @@ def test_event_store_discover_meta_timeline_and_diff(tmp_path: Path) -> None:
     paths = [str(f["path"]) for f in doc["points"][0]["files"]]
     assert paths == ["NOTE.txt"]
     assert "EVENT_OK" in str(doc["points"][0]["files"][0]["unified"])
+
+
+def test_event_log_loads_when_message_table_is_empty_for_the_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Live 1.18 keeps a message table; older sessions only have event rows."""
+    db = _event_store(tmp_path / "opencode.db")
+    con = sqlite3.connect(db)
+    try:
+        con.execute(
+            "CREATE TABLE IF NOT EXISTS message ("
+            "id TEXT, session_id TEXT, time_created INTEGER, "
+            "time_updated INTEGER, data TEXT)"
+        )
+        con.commit()
+    finally:
+        con.close()
+    monkeypatch.setattr("anqa.harness.opencode.default_db_path", lambda: db)
+    probe = Path("opencode:ses_evt_parent")
+    events = require_adapter(probe).parse_timeline(probe)
+    types = [e.event_type for e in events]
+    assert "user_message_chunk" in types
+    assert "tool_call" in types
+    from anqa.session.access import LocalSessionAccess
+
+    ov = LocalSessionAccess(resolve_session=lambda _s: None).session_overview(
+        "opencode:ses_evt_parent"
+    )
+    assert int((ov.get("turns") or {}).get("total") or 0) >= 1
+
+
+def test_cwd_prefixed_harness_ref_still_loads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Path.resolve() of opencode:id must not lose the adapter."""
+    db = _install_store(tmp_path, monkeypatch)
+    _ = db
+    prefixed = Path.cwd() / "opencode:ses_probe"
+    meta = require_adapter(prefixed).load_meta(prefixed)
+    assert meta.session_id == "ses_probe"
+    events = require_adapter(prefixed).parse_timeline(prefixed)
+    assert any(e.event_type == "user_message_chunk" for e in events)

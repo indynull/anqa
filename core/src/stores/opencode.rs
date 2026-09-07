@@ -828,11 +828,11 @@ impl Store for OpenCode {
             return Err(format!("opencode session not found: {session_id}"));
         }
         let con = open_ro(locator)?;
+        if table_exists(&con, "event") && max_seq(&con, session_id).is_some() {
+            return cached_event_records(locator, session_id, &con);
+        }
         if table_exists(&con, "message") {
             return message_records(&con, session_id);
-        }
-        if table_exists(&con, "event") {
-            return cached_event_records(locator, session_id, &con);
         }
         Ok(Vec::new())
     }
@@ -1080,6 +1080,45 @@ mod tests {
             .map(|ev| ev.content.as_str())
             .collect();
         assert_eq!(thoughts, ["think it through"]);
+
+        let _ = std::fs::remove_file(&db);
+        let _ = std::fs::remove_dir(db.parent().unwrap());
+    }
+
+    #[test]
+    fn opencode_reads_event_log_when_message_table_has_no_rows() {
+        let db = temp_db("event-only");
+        let con = open_rw(&db);
+        create_event_table(&con);
+        con.execute_batch(
+            "CREATE TABLE message (
+                id TEXT PRIMARY KEY,
+                session_id TEXT,
+                time_created INTEGER,
+                time_updated INTEGER,
+                data TEXT
+            )",
+        )
+        .unwrap();
+        let (info, part) = user_message("ses_event", "msg_e", "from the event log");
+        insert_event(
+            &con,
+            1,
+            "ses_event",
+            0,
+            "session.created.1",
+            r#"{"info":{"id":"ses_event"}}"#,
+        );
+        insert_event(&con, 2, "ses_event", 1, "message.updated.1", &info);
+        insert_event(&con, 3, "ses_event", 2, "message.part.updated.1", &part);
+        drop(con);
+
+        let events = crate::timeline("opencode", &db, "ses_event").unwrap();
+        assert_eq!(
+            user_texts(&events),
+            ["from the event log"],
+            "empty message table must not hide the event log"
+        );
 
         let _ = std::fs::remove_file(&db);
         let _ = std::fs::remove_dir(db.parent().unwrap());

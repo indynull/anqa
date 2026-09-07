@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from anqa.harness.ref import SessionRef, parse_session_ref_string
+from anqa.harness.ref import SessionRef, catalog_session_key, parse_session_ref_string
 from anqa.harness.registry import resolve_session_ref
 
 
@@ -17,6 +17,13 @@ def test_parse_rejects_paths() -> None:
     assert parse_session_ref_string("~/store.db") is None
     assert parse_session_ref_string("unknown:ses") is None
     assert parse_session_ref_string("") is None
+
+
+def test_catalog_session_key_unwraps_cwd_prefixed_harness_ref() -> None:
+    assert catalog_session_key("opencode:ses_probe") == "opencode:ses_probe"
+    prefixed = Path.cwd() / "opencode:ses_probe"
+    assert catalog_session_key(prefixed) == "opencode:ses_probe"
+    assert parse_session_ref_string(str(prefixed)) is None
 
 
 def test_ref_string_and_notes_are_the_same_for_every_store(tmp_path: Path) -> None:

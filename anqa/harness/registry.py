@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 from ..models import JsonObject
-from .ref import SessionRef, parse_session_ref_string
+from .ref import SessionRef, catalog_session_key, parse_session_ref_string
 from .types import HarnessAdapter
 
 type PathResolver = Callable[[str], Path | None]
@@ -189,7 +189,7 @@ def resolve_session_ref(
     :param path_resolve: Optional directory resolver (catalog cache).
     :returns: Locator, or None when nothing matches.
     """
-    raw = (reference or "").strip()
+    raw = catalog_session_key((reference or "").strip())
     if not raw:
         return None
     parsed = parse_session_ref_string(raw)
@@ -264,7 +264,7 @@ def adapter_for(ref: SessionRef | Path | str) -> HarnessAdapter | None:
     """
     if isinstance(ref, SessionRef):
         return adapter(ref.harness)
-    parsed = parse_session_ref_string(str(ref))
+    parsed = parse_session_ref_string(catalog_session_key(ref))
     if parsed is not None:
         return adapter(parsed[0])
     path = Path(ref)

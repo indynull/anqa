@@ -192,12 +192,13 @@ rewind snapshots, else write / `search_replace` tools.
 
 ## opencode — OpenCode
 
-SQLite store. Tested **1.18.25**.
+SQLite store. Tested **1.18.29**.
 
 Default file: `~/.local/share/opencode/opencode.db`. Live 1.18
 sessions are `event` rows (`session.created.1`, `session.updated.1`,
 `message.updated.1`, `message.part.updated.1`) keyed by
-`aggregate_id`. The `session` / `message` / `part` tables are the
+`aggregate_id`. The ingest reads that log when the session has
+event rows. The `session` / `message` / `part` tables are the
 archive shape (`E` writes that JSON; `open_archive` imports it).
 
 Discover skips rows with `parentID` / `parent_id`. Those children

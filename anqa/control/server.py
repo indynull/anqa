@@ -693,10 +693,13 @@ class ControlServer:
 
     def _schedule_search_warm(self, session: Path) -> None:
         """Fill the event store after open so Timeline search is a read."""
+        from ..harness.ref import catalog_session_key, parse_session_ref_string
+
+        raw = catalog_session_key(session)
         try:
-            key = session.resolve()
+            key = Path(raw) if parse_session_ref_string(raw) else Path(session).resolve()
         except OSError:
-            key = Path(session)
+            key = Path(raw)
         if key in self._search_warm_inflight:
             return
         try:

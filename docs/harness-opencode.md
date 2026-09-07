@@ -6,8 +6,7 @@ surfaces live in [`harness-adapters.md`](harness-adapters.md#opencode--opencode)
 When OpenCode ships a new session shape, update **this file and the
 parser in the same change** as `supported_version`.
 
-Pin: adapter `supported_version` (last parsed product, today **1.18.25**).
-Live CLI on this machine is 1.18.29; event types were the same.
+Pin: adapter `supported_version` (last parsed product, today **1.18.29**).
 
 ## Published source
 
@@ -23,9 +22,10 @@ only).
 
 Live 1.18 sessions are `event` rows (`session.created.1`,
 `session.updated.1`, `message.updated.1`, `message.part.updated.1`)
-keyed by `aggregate_id`. The `session` / `message` / `part` tables
-are the archive shape (`E` writes that JSON). Discover skips
-`parentID` / `parent_id` children.
+keyed by `aggregate_id`. The ingest reads that log when the session
+has event rows. The `session` / `message` / `part` tables are the
+archive shape (`E` writes that JSON) and are used when the session
+has no events. Discover skips `parentID` / `parent_id` children.
 
 `load_meta` is list-grade. `load_detail` already fills tokens when
 the event store wrote them.

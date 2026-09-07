@@ -51,9 +51,9 @@ def _db_from_ref(ref: SessionRef | Path | str, fallback: Path) -> tuple[Path, st
     if isinstance(ref, SessionRef):
         return Path(ref.locator), ref.session_id
     text = str(ref)
-    from .ref import parse_session_ref_string
+    from .ref import catalog_session_key, parse_session_ref_string
 
-    parsed = parse_session_ref_string(text)
+    parsed = parse_session_ref_string(catalog_session_key(text))
     if parsed is not None:
         return fallback, parsed[1]
     path = Path(text).expanduser()
@@ -294,7 +294,7 @@ class OpenCodeAdapter:
 
     id: str = OPENCODE_HARNESS_ID
     product: str = "OpenCode"
-    supported_version: str = "1.18.25"
+    supported_version: str = "1.18.29"
 
     def db(self) -> Path:
         """Host database path."""

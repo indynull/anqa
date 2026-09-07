@@ -58,6 +58,10 @@ Cursor (`cursor`) are registered.
   stamps `turn_number` on `task_started` when that bookend is present,
   and emits `turn_started` on a user message only when it is not.
 - Codex Overview reads last `event_msg` `info.last_token_usage.total_tokens`.
+- OpenCode Timeline reads the event log when that session has event
+  rows (the live store keeps a `message` table that is empty for
+  most sessions). Catalog `opencode:id` still binds after
+  `Path.resolve()`. Tested **1.18.29**.
 - Format contracts: `docs/harness-codex.md`, `docs/harness-gemini.md`,
   `docs/harness-cursor.md`, `docs/harness-copilot.md`,
   `docs/harness-opencode.md`, `docs/harness-antigravity.md`.

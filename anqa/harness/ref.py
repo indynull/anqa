@@ -76,8 +76,24 @@ def parse_session_ref_string(raw: str) -> tuple[str, str] | None:
     return head, tail
 
 
+def catalog_session_key(raw: str | Path) -> str:
+    """Harness:id when *raw* is one, including a cwd-prefixed Path.resolve().
+
+    ``Path("opencode:ses_…").resolve()`` becomes ``<cwd>/opencode:ses_…``.
+    That string is not a filesystem path we own.
+    """
+    text = str(raw).strip()
+    if parse_session_ref_string(text) is not None:
+        return text
+    name = Path(text).name
+    if parse_session_ref_string(name) is not None and not Path(text).exists():
+        return name
+    return text
+
+
 __all__ = [
     "HARNESS_IDS",
     "SessionRef",
     "parse_session_ref_string",
+    "catalog_session_key",
 ]
