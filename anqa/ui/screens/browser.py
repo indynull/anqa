@@ -1383,6 +1383,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
     def _load_control_notes(self) -> NotesDoc:
         import asyncio
+        import concurrent.futures
 
         from ...notes import NoteEntry, NotesDoc
 
@@ -1392,7 +1393,16 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         async def _nl() -> object:
             return await access.notes_list(ref)
 
-        snap = asyncio.run(_nl())
+        def _thread_main() -> object:
+            return asyncio.run(_nl())
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            snap = _thread_main()
+        else:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                snap = pool.submit(_thread_main).result(timeout=60)
         if not isinstance(snap, dict):
             return NotesDoc()
         notes: list[NoteEntry] = []
@@ -3301,7 +3311,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             if isinstance(focused, (Input, Select)):
                 return False
             if self._active_browser_tab() == "tab-notes":
-                return bool(self._note_ids())
+                return self._notes_loaded and bool(self._notes_doc.notes)
             if self._active_browser_tab() != "tab-timeline":
                 return False
             with suppress(Exception):
