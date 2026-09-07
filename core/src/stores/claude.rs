@@ -5,6 +5,7 @@ use crate::jsonl::{self, JsonlRow};
 use crate::store::Store;
 use crate::text;
 use serde_json::Value;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 pub struct Claude;
@@ -43,6 +44,94 @@ fn sid_of(path: &Path) -> String {
         .to_string()
 }
 
+fn is_branch_entry(value: &Value) -> bool {
+    matches!(
+        text::field_str(value, "type").as_str(),
+        "user" | "assistant"
+    ) && !text::field_str(value, "uuid").is_empty()
+}
+
+/// Last `uuid` row, then walk `parentUuid` to root. Linear files stay in order.
+fn leaf_path(rows: &[JsonlRow]) -> Vec<&JsonlRow> {
+    let mut by_id: HashMap<String, usize> = HashMap::new();
+    for (i, row) in rows.iter().enumerate() {
+        if !is_branch_entry(&row.value) {
+            continue;
+        }
+        let id = text::field_str(&row.value, "uuid");
+        if !id.is_empty() {
+            by_id.insert(id, i);
+        }
+    }
+    if by_id.is_empty() {
+        return rows.iter().collect();
+    }
+    let linked = rows.iter().any(|row| {
+        is_branch_entry(&row.value) && !text::field_str(&row.value, "parentUuid").is_empty()
+    });
+    if !linked {
+        return rows.iter().collect();
+    }
+    let Some(start) = rows.iter().enumerate().rev().find_map(|(i, row)| {
+        if is_branch_entry(&row.value) && !text::field_str(&row.value, "uuid").is_empty() {
+            Some(i)
+        } else {
+            None
+        }
+    }) else {
+        return rows.iter().collect();
+    };
+    let mut chain = Vec::new();
+    let mut cur = Some(start);
+    let mut seen = HashSet::new();
+    while let Some(i) = cur {
+        if !seen.insert(i) {
+            break;
+        }
+        chain.push(&rows[i]);
+        let parent = text::field_str(&rows[i].value, "parentUuid");
+        if parent.is_empty() {
+            break;
+        }
+        cur = by_id.get(&parent).copied();
+    }
+    chain.reverse();
+    chain
+}
+
+fn usage_tokens(msg: &Value) -> Option<i64> {
+    let usage = msg.get("usage")?;
+    if !usage.is_object() {
+        return None;
+    }
+    let input = usage
+        .get("input_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let cache_read = usage
+        .get("cache_read_input_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let output = usage
+        .get("output_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    Some(input + cache_read + output)
+}
+
+fn last_usage(rows: &[&JsonlRow]) -> Option<i64> {
+    for row in rows.iter().rev() {
+        if text::field_str(&row.value, "type") != "assistant" {
+            continue;
+        }
+        let msg = row.value.get("message")?;
+        if let Some(n) = usage_tokens(msg) {
+            return Some(n);
+        }
+    }
+    None
+}
+
 fn is_tool_result_user(msg: &Value) -> bool {
     msg.get("content")
         .and_then(|v| v.as_array())
@@ -54,9 +143,10 @@ fn is_tool_result_user(msg: &Value) -> bool {
 }
 
 fn timeline_rows(rows: &[JsonlRow]) -> Vec<Event> {
-    let mut names = std::collections::HashMap::new();
-    let mut children = std::collections::HashMap::new();
-    for row in rows {
+    let path = leaf_path(rows);
+    let mut names = HashMap::new();
+    let mut children = HashMap::new();
+    for row in &path {
         let typ = text::field_str(&row.value, "type");
         if typ == "user" {
             let tur = row
@@ -99,7 +189,7 @@ fn timeline_rows(rows: &[JsonlRow]) -> Vec<Event> {
     }
     let mut events = Vec::new();
     let mut turn = 0i32;
-    for row in rows {
+    for row in path {
         let typ = text::field_str(&row.value, "type");
         let ts = text::field_i64(&row.value, "timestamp");
         if typ == "user" {
@@ -305,6 +395,22 @@ impl Store for Claude {
         meta.num_events = self.event_count(locator, session_id);
         Ok(meta)
     }
+
+    fn detail_meta(&self, locator: &Path, session_id: &str) -> Result<ListMeta, String> {
+        if !locator.is_file() {
+            return Err(format!("claude session not found: {session_id}"));
+        }
+        let rows = jsonl::cached_records(locator, None);
+        if rows.is_empty() {
+            return Err(format!("claude session not found: {session_id}"));
+        }
+        let events = self.events(&rows);
+        let path = leaf_path(&rows);
+        let mut meta = meta_from_window(&rows, locator, session_id);
+        meta.num_events = events.len() as u32;
+        meta.context_tokens_used = last_usage(&path);
+        Ok(meta)
+    }
 }
 
 const CHROME_TYPES: &[&str] = &[
@@ -471,5 +577,28 @@ mod tests {
         assert_eq!(meta.title, "Reply with CLAUDE_PROBE_OK");
         assert_eq!(meta.turn_outcome, "complete");
         assert_eq!(meta.model_id, "claude-opus-5");
+    }
+
+    #[test]
+    fn leaf_path_drops_abandoned_branch() {
+        let rows = vec![
+            JsonlRow {
+                raw: r#"{"type":"user","uuid":"u1","parentUuid":"","message":{"role":"user","content":"root"}}"#.into(),
+                value: serde_json::json!({"type":"user","uuid":"u1","parentUuid":"","message":{"role":"user","content":"root"}}),
+            },
+            JsonlRow {
+                raw: r#"{"type":"assistant","uuid":"old","parentUuid":"u1","message":{"role":"assistant","content":[{"type":"text","text":"abandoned"}]}}"#.into(),
+                value: serde_json::json!({"type":"assistant","uuid":"old","parentUuid":"u1","message":{"role":"assistant","content":[{"type":"text","text":"abandoned"}]}}),
+            },
+            JsonlRow {
+                raw: r#"{"type":"user","uuid":"u2","parentUuid":"u1","message":{"role":"user","content":"new"}}"#.into(),
+                value: serde_json::json!({"type":"user","uuid":"u2","parentUuid":"u1","message":{"role":"user","content":"new"}}),
+            },
+        ];
+        let path: Vec<String> = leaf_path(&rows)
+            .iter()
+            .map(|r| text::field_str(&r.value, "uuid"))
+            .collect();
+        assert_eq!(path, ["u1", "u2"]);
     }
 }

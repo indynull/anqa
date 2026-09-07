@@ -47,8 +47,11 @@ _STILL_REF = re.compile(
 _TOOL_FAMILY_READ = frozenset(
     {
         "read",
+        "Read",
         "read_file",
         "grep",
+        "Grep",
+        "Glob",
         "find",
         "ls",
         "list_dir",
@@ -63,7 +66,10 @@ _TOOL_FAMILY_WRITE = frozenset(
     {
         "search_replace",
         "edit",
+        "Edit",
+        "StrReplace",
         "write",
+        "Write",
         "write_file",
         "create_file",
         "todo_write",
@@ -77,6 +83,7 @@ _TOOL_FAMILY_WRITE = frozenset(
 _TOOL_FAMILY_SHELL = frozenset(
     {
         "bash",
+        "Bash",
         "run_terminal_command",
         "get_command_or_subagent_output",
         "kill_command_or_subagent",

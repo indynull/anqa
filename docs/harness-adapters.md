@@ -265,7 +265,7 @@ the same change.
 | Id | Product command | Published source |
 |----|-----------------|------------------|
 | `antigravity` | product about string | On-disk `conversations/*.db` + `brain/*/…/transcript.jsonl` |
-| `claude` | `claude --version` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) jsonl types |
+| `claude` | `claude --version` | [`docs/harness-claude.md`](harness-claude.md) — jsonl `user` / `assistant` + `parentUuid` |
 | `copilot` | `copilot --version` | On-disk `session-store.db` + `session-state/<id>/events.jsonl` |
 | `codex` | `codex --version` | [apply-patch parser.rs](https://github.com/openai/codex/blob/main/codex-rs/apply-patch/src/parser.rs) |
 | `cursor` | `cursor-agent --version` | On-disk `agent-transcripts` + `chats/*/<id>/meta.json` |

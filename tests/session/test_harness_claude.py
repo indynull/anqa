@@ -230,3 +230,90 @@ def test_export_bundle_from_harness_ref(tmp_path: Path) -> None:
     with tarfile.open(inner, "r:gz") as tf:
         members = tf.getnames()
     assert f"{_SID}/{_FIXTURE_FILE.name}" in members
+
+
+def test_load_detail_reads_last_assistant_usage(tmp_path: Path) -> None:
+    path = tmp_path / "used.jsonl"
+    path.write_text(
+        '{"type":"user","uuid":"u1","parentUuid":"","sessionId":"cl-used",'
+        '"timestamp":"2026-08-09T12:00:00.000Z",'
+        '"message":{"role":"user","content":"hi"}}\n'
+        '{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"cl-used",'
+        '"timestamp":"2026-08-09T12:00:01.000Z",'
+        '"message":{"role":"assistant","model":"claude-opus-5",'
+        '"content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn",'
+        '"usage":{"input_tokens":10,"cache_read_input_tokens":3,'
+        '"output_tokens":4,"cache_creation_input_tokens":99}}}\n',
+        encoding="utf-8",
+    )
+    meta = ClaudeAdapter().load_detail(path)
+    assert meta.context_tokens_used == 17
+    assert meta.context_tokens_used != 116
+
+
+def test_timeline_follows_leaf_and_drops_abandoned_branch(tmp_path: Path) -> None:
+    path = tmp_path / "branch.jsonl"
+    path.write_text(
+        '{"type":"user","uuid":"u1","parentUuid":"","sessionId":"cl-br",'
+        '"timestamp":"2026-08-09T12:00:00.000Z",'
+        '"message":{"role":"user","content":"root"}}\n'
+        '{"type":"assistant","uuid":"old","parentUuid":"u1","sessionId":"cl-br",'
+        '"timestamp":"2026-08-09T12:00:01.000Z",'
+        '"message":{"role":"assistant","content":[{"type":"text","text":"abandoned"}]}}\n'
+        '{"type":"user","uuid":"u2","parentUuid":"u1","sessionId":"cl-br",'
+        '"timestamp":"2026-08-09T12:00:02.000Z",'
+        '"message":{"role":"user","content":"new"}}\n'
+        '{"type":"assistant","uuid":"a2","parentUuid":"u2","sessionId":"cl-br",'
+        '"timestamp":"2026-08-09T12:00:03.000Z",'
+        '"message":{"role":"assistant","content":[{"type":"text","text":"kept"}]}}\n',
+        encoding="utf-8",
+    )
+    events = ClaudeAdapter().parse_timeline(path)
+    texts = [e.content for e in events if e.event_type == "user_message_chunk"]
+    assert texts == ["root", "new"]
+    assistant = [e.content for e in events if e.event_type == "agent_message_chunk"]
+    assert assistant == ["kept"]
+    assert "abandoned" not in [e.content for e in events]
+
+
+def test_session_diff_one_point_per_user_turn(tmp_path: Path) -> None:
+    from anqa.harness.views import session_diff
+
+    path = tmp_path / "edits.jsonl"
+    path.write_text(
+        '{"type":"user","uuid":"u1","parentUuid":"","sessionId":"cl-ed",'
+        '"timestamp":"2026-08-09T12:00:00.000Z",'
+        '"message":{"role":"user","content":"edit hello"}}\n'
+        '{"type":"assistant","uuid":"a1","parentUuid":"u1","sessionId":"cl-ed",'
+        '"timestamp":"2026-08-09T12:00:01.000Z",'
+        '"message":{"role":"assistant","content":[{"type":"tool_use","id":"c1",'
+        '"name":"Edit","input":{"file_path":"/tmp/hello.py",'
+        '"old_string":"1","new_string":"2"}}]}}\n'
+        '{"type":"user","uuid":"u2","parentUuid":"a1","sessionId":"cl-ed",'
+        '"timestamp":"2026-08-09T12:00:02.000Z",'
+        '"message":{"role":"user","content":"write note"}}\n'
+        '{"type":"assistant","uuid":"a2","parentUuid":"u2","sessionId":"cl-ed",'
+        '"timestamp":"2026-08-09T12:00:03.000Z",'
+        '"message":{"role":"assistant","content":[{"type":"tool_use","id":"c2",'
+        '"name":"Write","input":{"file_path":"/tmp/NOTE.txt","content":"hi\\n"}}]}}\n',
+        encoding="utf-8",
+    )
+    ref = ClaudeAdapter().bind_locator(path)
+    assert ref is not None
+    points = session_diff(ref)["points"]
+    assert [p["promptIndex"] for p in points] == [0, 1]
+    assert [f["path"] for f in points[0]["files"]] == ["/tmp/hello.py"]
+    assert [f["path"] for f in points[1]["files"]] == ["/tmp/NOTE.txt"]
+
+
+def test_claude_tool_names_stay_native() -> None:
+    from anqa.tool_display import ToolFamily, format_tool_display, tool_family
+
+    assert format_tool_display("Edit") == "Edit"
+    assert format_tool_display("Write") == "Write"
+    assert format_tool_display("StrReplace") == "StrReplace"
+    assert tool_family("Edit") == ToolFamily.WRITE
+    assert tool_family("Write") == ToolFamily.WRITE
+    assert tool_family("StrReplace") == ToolFamily.WRITE
+    assert tool_family("Read") == ToolFamily.READ
+    assert tool_family("Bash") == ToolFamily.SHELL

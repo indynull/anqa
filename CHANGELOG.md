@@ -50,6 +50,10 @@ Cursor (`cursor`) are registered.
   `has:note` follows overlay notes and `operator_notes.toml` beside
   the session. A notes write through control rebuilds that catalog
   row and the open overview.
+- Claude Code Overview reads last assistant `usage` (`input_tokens` +
+  `cache_read_input_tokens` + `output_tokens`). The timeline follows
+  the `parentUuid` leaf path. Tool cards keep `Edit` / `Write` /
+  `StrReplace`. Format contract: `docs/harness-claude.md`.
 - Diff uses rewind snapshots when the store wrote them. Otherwise it
   rebuilds per-path patches from write and edit tool calls on the
   timeline (every shipped adapter). OpenCode also uses

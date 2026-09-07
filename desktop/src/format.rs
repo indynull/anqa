@@ -955,8 +955,12 @@ pub enum BrandRole {
 }
 
 const TOOL_FAMILY_READ: &[&str] = &[
+    "read",
+    "Read",
     "read_file",
     "grep",
+    "Grep",
+    "Glob",
     "list_dir",
     "web_search",
     "read_resource",
@@ -966,6 +970,11 @@ const TOOL_FAMILY_READ: &[&str] = &[
 ];
 const TOOL_FAMILY_WRITE: &[&str] = &[
     "search_replace",
+    "edit",
+    "Edit",
+    "StrReplace",
+    "write",
+    "Write",
     "write_file",
     "create_file",
     "todo_write",
@@ -977,6 +986,7 @@ const TOOL_FAMILY_WRITE: &[&str] = &[
 ];
 const TOOL_FAMILY_SHELL: &[&str] = &[
     "bash",
+    "Bash",
     "run_terminal_command",
     "get_command_or_subagent_output",
     "kill_command_or_subagent",

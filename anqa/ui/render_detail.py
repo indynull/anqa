@@ -546,7 +546,7 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
-    if tname in ("search_replace", "edit"):
+    if tname in ("search_replace", "edit", "Edit", "StrReplace"):
         fp = ri.get("file_path") or ri.get("target_file") or ri.get("path") or path_hint or ""
         if fp:
             parts.append(Text(t("tool-input-file", path=str(fp)), style="cyan"))
@@ -590,7 +590,7 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
-    if tname in ("read_file", "read"):
+    if tname in ("read_file", "read", "Read"):
         tf = ri.get("target_file") or ri.get("file_path") or ri.get("path") or path_hint
         if tf:
             parts.append(Text(t("tool-input-target-file", path=str(tf)), style="cyan"))
@@ -604,7 +604,7 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
             except Exception:
                 parts.append(Text(str(ri)))
         return parts
-    if tname in ("write", "write_file", "create_file"):
+    if tname in ("write", "Write", "write_file", "create_file"):
         fp = ri.get("path") or ri.get("file_path") or ri.get("target_file") or path_hint or ""
         if fp:
             parts.append(Text(t("tool-input-file", path=str(fp)), style="cyan"))
