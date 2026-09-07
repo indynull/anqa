@@ -676,7 +676,7 @@ against the catalog.
 | ``/`` | Search (TUI sessions + browser; HUD picker + Turns / Timeline) |
 | ``y`` / ``Ctrl+Shift+C`` | Copy body |
 | ``j`` / ``k`` | List down / up (sessions, Timeline, Turns, Notes) |
-| ``h`` / ``l`` (Left / Right) | Timeline turns: TUI steps the Turn filter; HUD focuses the next Filter hit while All turns is selected |
+| ``h`` / ``l`` (Left / Right) | Timeline turns: both step the Turn filter |
 | ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
 | ``Ctrl+O`` | Import a harness archive or anqa export (session list) |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
@@ -703,7 +703,7 @@ panes. Digits type into search, so pane jump is **Ctrl+1–5**.
 | ``Tab`` / ``Shift+Tab`` | Next / previous browse pane (on Notes: next / previous note field; ``Ctrl+Tab`` still changes panes) |
 | ``Ctrl+1``…``Ctrl+5`` | Jump Overview … Notes (Diff is pane 4) |
 | ``[`` | Timeline: all turns (Filter stays) |
-| ``]`` | Timeline: next matching turn while All turns is selected (same as ``l``) |
+| ``]`` | Timeline: next matching Filter hit while All turns is selected |
 | ``g`` | Turns → Timeline for the focused turn |
 | ``u`` | Leave the open session for the session list (logo click does the same) |
 

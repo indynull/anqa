@@ -210,11 +210,11 @@ On Timeline, drag the list/detail divider to resize the panes. Enter
 still opens a full-width event.
 
 The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / `j` `k`
-/ `h` `l` (Timeline turns while All turns is selected) / `N`. HUD panes are Tab
+/ `h` `l` (previous / next Timeline turn) / `N`. HUD panes are Tab
 and Ctrl+1–5 except on Notes, where Tab walks the note fields and
 Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
-`]` / `h` `l` jump to the next or previous turn that still matches
-Filter, only while All turns is selected. `u` or the logo leaves the
+`]` jumps to the next turn that still matches Filter, only while All
+turns is selected. `u` or the logo leaves the
 open session for the session list. `g` on Turns opens Timeline for that
 turn. Enter opens (or edits the focused note). An open event has a
 **Raw** Switch: this event as JSON.

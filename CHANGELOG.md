@@ -125,6 +125,9 @@ Cursor (`cursor`) are registered.
 - Clearing catalog or Timeline search remounts the idle list (not the
   leftover short search window). Leaving a session (`u` or the logo)
   puts the catalog search back.
+- Timeline `h` / `l` (Left / Right) step the Turn filter the same way
+  as the terminal app, including when a turn is selected. `]` jumps
+  to the next Filter hit while All turns is selected.
 
 ### Control
 

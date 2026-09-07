@@ -4911,6 +4911,30 @@ impl Hud {
             .or_else(|| t.event_indexes.first().copied())
     }
 
+    fn step_events_turn(&mut self, forward: bool) -> Task<Message> {
+        let ids: Vec<i64> = self
+            .overview
+            .as_ref()
+            .map(|o| o.turns.turns.iter().map(|t| t.turn_index).collect())
+            .unwrap_or_default();
+        if ids.len() < 2 {
+            return Task::none();
+        }
+        let dest = match self.events_turn_index {
+            None if forward => ids.first().copied(),
+            None => ids.last().copied(),
+            Some(cur) => match (ids.iter().position(|&t| t == cur), forward) {
+                (Some(i), true) if i + 1 < ids.len() => Some(ids[i + 1]),
+                (Some(0), false) => None,
+                (Some(i), false) => Some(ids[i - 1]),
+                (None, true) => ids.first().copied(),
+                (None, false) => ids.last().copied(),
+                _ => return Task::none(),
+            },
+        };
+        self.select_events_turn(dest)
+    }
+
     fn focus_matching_turn(&mut self, forward: bool) -> Task<Message> {
         let turns = self.matching_turn_indexes();
         if turns.is_empty() {
@@ -6263,8 +6287,9 @@ impl Hud {
         if self.browse_mode() && self.key_is("sessions.home", "u", &key, modifiers) {
             return self.go_sessions_home();
         }
-        // Events turn scope: h / l / Left / Right (shared). HUD `]` is
-        // the same next-turn step; `[` clears to all turns.
+        // Events turn scope: h / l / Left / Right step the Turn filter.
+        // HUD `]` focuses the next Filter hit while All turns is selected;
+        // `[` clears to all turns.
         if self.tab == Tab::Diff && self.diff.points.len() > 1 {
             if self.key_is("events.next_turn", "l,right", &key, modifiers) {
                 self.step_diff_point(1);
@@ -6279,16 +6304,16 @@ impl Hud {
             if self.key_is("events.all_turns", "left_square_bracket", &key, modifiers) {
                 return self.select_events_turn(None);
             }
-            let next_turn = self.key_is("events.next_turn", "l,right", &key, modifiers)
-                || self.key_is("events.scope_next", "right_square_bracket", &key, modifiers);
-            let prev_turn = self.key_is("events.prev_turn", "h,left", &key, modifiers);
-            if self.events_turn_index.is_none() {
-                if next_turn {
-                    return self.focus_matching_turn(true);
-                }
-                if prev_turn {
-                    return self.focus_matching_turn(false);
-                }
+            if self.key_is("events.next_turn", "l,right", &key, modifiers) {
+                return self.step_events_turn(true);
+            }
+            if self.key_is("events.prev_turn", "h,left", &key, modifiers) {
+                return self.step_events_turn(false);
+            }
+            if self.events_turn_index.is_none()
+                && self.key_is("events.scope_next", "right_square_bracket", &key, modifiers)
+            {
+                return self.focus_matching_turn(true);
             }
         }
         // From Turns: `g` opens Timeline for that turn, all event types.
@@ -10084,10 +10109,9 @@ mod tests {
     }
 
     #[test]
-    fn events_h_l_from_all_focuses_matching_turns() {
+    fn events_h_l_steps_the_turn_filter() {
         let mut hud = two_turn_timeline();
-        hud.timeline_focus = Some(1);
-        hud.rebuild_tl_filter();
+        hud.rebuild_events_turn_options();
         let press = |ch: &str, code: iced::keyboard::key::Code| {
             Event::Keyboard(keyboard::Event::KeyPressed {
                 key: Key::Character(ch.into()),
@@ -10104,19 +10128,38 @@ mod tests {
             "l",
             iced::keyboard::key::Code::KeyL,
         )));
-        assert!(hud.events_turn_index.is_none());
-        assert_eq!(hud.timeline_focus(), Some(3));
+        assert_eq!(hud.events_turn_index, Some(0));
         let _ = hud.update(Message::RawEvent(press(
             "l",
             iced::keyboard::key::Code::KeyL,
         )));
-        assert_eq!(hud.timeline_focus(), Some(5));
+        assert_eq!(hud.events_turn_index, Some(1));
+        let _ = hud.update(Message::RawEvent(press(
+            "l",
+            iced::keyboard::key::Code::KeyL,
+        )));
+        assert_eq!(hud.events_turn_index, Some(2));
+        let _ = hud.update(Message::RawEvent(press(
+            "l",
+            iced::keyboard::key::Code::KeyL,
+        )));
+        assert_eq!(hud.events_turn_index, Some(2));
+        let _ = hud.update(Message::RawEvent(press(
+            "h",
+            iced::keyboard::key::Code::KeyH,
+        )));
+        assert_eq!(hud.events_turn_index, Some(1));
+        let _ = hud.select_events_turn(Some(0));
         let _ = hud.update(Message::RawEvent(press(
             "h",
             iced::keyboard::key::Code::KeyH,
         )));
         assert!(hud.events_turn_index.is_none());
-        assert_eq!(hud.timeline_focus(), Some(3));
+        let _ = hud.update(Message::RawEvent(press(
+            "h",
+            iced::keyboard::key::Code::KeyH,
+        )));
+        assert_eq!(hud.events_turn_index, Some(2));
     }
 
     #[test]

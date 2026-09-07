@@ -21,7 +21,7 @@ pub struct KeyScope {
     pub compact_child: bool,
     /// Events turn pick is shown (more than one turn).
     pub turn_pick: bool,
-    /// A specific Timeline turn is selected; h/l/] do not change it.
+    /// A specific Timeline turn is selected; `]` stays off (h/l still step).
     pub turn_locked: bool,
     /// Diff turn pick (more than one rewind record).
     pub diff_pick: bool,
@@ -468,28 +468,28 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
         );
     }
     if scope.tab == Tab::Timeline && scope.turn_pick {
+        push(
+            &mut table,
+            overlay,
+            "events.prev_turn",
+            "Previous turn",
+            "h,left",
+            Message::Noop,
+        );
+        push(
+            &mut table,
+            overlay,
+            "events.next_turn",
+            "Next turn",
+            "l,right",
+            Message::Noop,
+        );
         if !scope.turn_locked {
             push(
                 &mut table,
                 overlay,
-                "events.prev_turn",
-                "Previous turn",
-                "h,left",
-                Message::Noop,
-            );
-            push(
-                &mut table,
-                overlay,
-                "events.next_turn",
-                "Next turn",
-                "l,right",
-                Message::Noop,
-            );
-            push(
-                &mut table,
-                overlay,
                 "events.scope_next",
-                "Next turn",
+                "Next match",
                 "]",
                 Message::Noop,
             );
@@ -888,7 +888,9 @@ mod tests {
             note_focused: false,
             notes_composing: false,
         });
-        assert!(locked.get("events.next_turn").is_none());
+        assert!(locked.get("events.next_turn").is_some());
+        assert!(locked.get("events.prev_turn").is_some());
+        assert!(locked.get("events.scope_next").is_none());
         assert!(locked.get("events.all_turns").is_some());
     }
 
