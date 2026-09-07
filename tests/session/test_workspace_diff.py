@@ -15,6 +15,7 @@ from anqa.session.workspace_diff import (
     load_workspace_diff,
     load_workspace_diff_doc,
     point_from_events,
+    points_from_events,
 )
 
 # ── _snap_map ────────────────────────────────────────────────────────────
@@ -505,6 +506,56 @@ def test_point_from_events_ignores_read_and_shell() -> None:
         _call("Read", {"file_path": "y.py"}),
     ]
     assert point_from_events(events) is None
+
+
+def test_points_from_events_one_point_per_turn() -> None:
+    events = [
+        TraceEvent(
+            index=0,
+            event_type="turn_started",
+            content="turn_number=0",
+            turn_number=0,
+        ),
+        TraceEvent(
+            index=1,
+            event_type="user_message_chunk",
+            content="first edit",
+            turn_number=0,
+        ),
+        TraceEvent(
+            index=2,
+            event_type="tool_call",
+            tool_name="edit",
+            raw_input=ToolInputBag({"path": "a.py", "edits": [{"oldText": "1", "newText": "2"}]}),
+            turn_number=0,
+        ),
+        TraceEvent(
+            index=3,
+            event_type="turn_started",
+            content="turn_number=1",
+            turn_number=1,
+        ),
+        TraceEvent(
+            index=4,
+            event_type="user_message_chunk",
+            content="write a note",
+            turn_number=1,
+        ),
+        TraceEvent(
+            index=5,
+            event_type="tool_call",
+            tool_name="write",
+            raw_input=ToolInputBag({"path": "NOTE.txt", "content": "hi\n"}),
+            turn_number=1,
+        ),
+    ]
+    points = points_from_events(events)
+    assert [p.prompt_index for p in points] == [0, 1]
+    assert [p.key for p in points] == ["edits-0", "edits-1"]
+    assert [h.path for h in points[0].files] == ["a.py"]
+    assert [h.path for h in points[1].files] == ["NOTE.txt"]
+    assert points[0].prompt_text == "first edit"
+    assert points[1].prompt_text == "write a note"
 
 
 def test_point_from_events_groups_edits_by_path() -> None:

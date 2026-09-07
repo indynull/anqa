@@ -65,6 +65,10 @@ class TestToolStyle:
         assert tool_style("read_file") == "default"
         assert tool_style("grep") == "default"
         assert tool_style("search_replace") == "green"
+        assert tool_style("read") == "default"
+        assert tool_style("edit") == "green"
+        assert tool_style("write") == "green"
+        assert tool_style("bash") == "yellow"
 
     def test_unknown_tool(self):
         assert tool_style("some_random_tool") == "dim"
@@ -1339,3 +1343,39 @@ class TestRenderEventDetailMore:
         )
         result = render_event_detail(ev)
         assert_rich_contains(result, "turn started")
+
+
+class TestPiToolCards:
+    def test_read_uses_path(self) -> None:
+        result = render_tool_detail(
+            index=0,
+            tool_name="read",
+            raw_input={"path": "src/main.py", "offset": 1, "limit": 20},
+            output="def main():\n    pass\n",
+        )
+        assert_rich_contains(result, "src/main.py")
+
+    def test_edit_renders_old_new(self) -> None:
+        result = render_tool_detail(
+            index=0,
+            tool_name="edit",
+            raw_input={
+                "path": "hello.py",
+                "edits": [{"oldText": "return 1", "newText": "return 2"}],
+            },
+            output="ok",
+        )
+        plain = rich_plain(result)
+        assert "hello.py" in plain
+        assert "return 1" in plain
+        assert "return 2" in plain
+
+    def test_write_renders_content(self) -> None:
+        result = render_tool_detail(
+            index=0,
+            tool_name="write",
+            raw_input={"path": "NOTE.txt", "content": "hello\n"},
+            output="wrote 6 bytes",
+        )
+        assert_rich_contains(result, "NOTE.txt")
+        assert_rich_contains(result, "hello")

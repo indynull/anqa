@@ -208,18 +208,26 @@ finished assistant, or archived. Diff prefers the last user
 
 ## pi — Pi
 
-JSONL store. Tested **0.84.4**.
+JSONL store. Tested **0.84.4**. Parse contract: [`harness-pi.md`](harness-pi.md).
 
 Default root: `~/.pi/agent/sessions/**/*.jsonl`. One file is one
-session. The first row is `type=session` (id, cwd, version). Later
-rows are `message` (roles `user`, `assistant`, `toolResult`) and
-`model_change`. Title is the first user text. Model is the last
-`provider` / `modelId`. List Turn is `running` when the last row is
-`toolResult` or an assistant `stopReason` of tool use; otherwise
-the assistant stop reason. Diff is edit / write tools on the
-timeline. A ``subagent`` tool with ``tasks[]`` emits one spawn and
-one finish bookend per task from ``details.results`` (no child
-jsonl; runs are listed and not openable).
+session. The first row is `type=session` (id, cwd, version) or a v4
+`kind=header`. Later rows are a parent-linked entry tree: `message`
+(roles `user`, `assistant`, `toolResult`, `bashExecution`,
+`compactionSummary`, `branchSummary`, `custom`), `model_change`,
+`thinking_level_change`, `compaction`, `branch_summary`,
+`session_info`, and `custom_message`. Title is the last
+`session_info.name`, else the first user text on the active leaf.
+Model is the last `provider` / `modelId`. Thinking level is the last
+`thinking_level_change`. Context tokens come from the last assistant
+`usage.totalTokens`. List Turn is `running` when the last leaf
+message is `toolResult` or an assistant `stopReason` of tool use; an
+assistant `errorMessage` is `cancelled`. The timeline follows the
+leaf `parentId` path (rewound branches stay off it). Diff is edit /
+write tools on the timeline. A ``subagent`` tool with ``tasks[]``
+emits one spawn and one finish bookend per task from
+``details.results`` (no child jsonl; runs are listed and not
+openable).
 
 ## How each store fills the surfaces
 
@@ -236,7 +244,7 @@ store did not write that product data).
 | `gemini` | `$set` / `session_metadata` jsonl | tool `status` / last user | write / replace tools | `kind=subagent` files (off the list) | Timeline bookends only |
 | `grok` | `updates.jsonl` | updates tail | `rewind_points.jsonl` or `search_replace` | `subagents/` + spawn bookends | Directory files + timeline (`terminal/`, `workflows/wf_*`, `goal/state.json`, `plan.json`, `signals.json`) |
 | `opencode` | `event` / `part` rows | last part `state.status` | `summary.diffs` or edit / write | `task` + `parentID` | Timeline bookends only |
-| `pi` | jsonl `message` | `stopReason` / last `toolResult` | edit / write tools | `subagent` tasks + `details.results` | Timeline bookends only |
+| `pi` | leaf-path jsonl (`message`, compaction, thinking level) | `stopReason` / last `toolResult` / `errorMessage` | edit / write tools, one Diff point per turn | `subagent` tasks + `details.results` | Assistant `usage`, `thinking_level_change`, `compaction`, `session_info` |
 
 ## Filter
 
@@ -261,7 +269,7 @@ the same change.
 | `gemini` | `gemini --version` | [chatRecordingService.ts](https://github.com/google-gemini/gemini-cli/blob/main/packages/core/src/services/chatRecordingService.ts) |
 | `grok` | `grok --version` | Session directory + `updates.jsonl` |
 | `opencode` | `opencode --version` | [OpenCode server](https://opencode.ai/docs/server/) (`GET /session/:id/diff`, `summary.diffs`). Live 1.18 `event` types above. |
-| `pi` | `pi --version` | On-disk `~/.pi/agent/sessions/**/*.jsonl` |
+| `pi` | `pi --version` | [`docs/harness-pi.md`](harness-pi.md) — `session-manager.d.ts` `SessionEntry` + on-disk `~/.pi/agent/sessions/**/*.jsonl` |
 
 Probe first: `just harness-probe`. Then extend `parse_timeline` /
 `load_meta` for any new key in the same commit as the version bump.

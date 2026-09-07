@@ -41,6 +41,10 @@ def test_discover_and_meta() -> None:
     assert meta.harness == PI_HARNESS_ID
     assert meta.title == "Reply with PI_PROBE_OK"
     assert meta.model_id == "xai/grok-4.5"
+    assert meta.reasoning_effort == "medium"
+    assert meta.context_tokens_used == 14
+    assert meta.num_messages == 3
+    assert meta.harness_version == ""
     assert meta.tool_call_count >= 1
     assert meta.list_status_label() == "complete"
 
@@ -159,7 +163,8 @@ def test_timeline_user_tool_result() -> None:
     assert ref is not None
     events = require_adapter(ref).parse_timeline(ref)
     types = [e.event_type for e in events]
-    assert types[0] == "turn_started"
+    assert "current_mode_update" in types
+    assert "turn_started" in types
     assert "user_message_chunk" in types
     assert "agent_thought_chunk" in types
     assert "tool_call" in types
@@ -307,6 +312,36 @@ def test_session_diff_uses_edit_and_write_tools(tmp_path: Path) -> None:
     unified = "\n".join(str(f["unified"]) for f in points[0]["files"])
     assert "return 2" in unified
     assert "WS1" in unified
+    assert points[0]["promptIndex"] == 0
+
+
+def test_session_diff_one_point_per_user_turn(tmp_path: Path) -> None:
+    """Diff picker lists each Pi turn that edited a file."""
+    from anqa.harness.views import session_diff
+
+    path = tmp_path / "turns.jsonl"
+    path.write_text(
+        '{"type":"session","version":3,"id":"pi-turns","timestamp":"2026-08-09T12:00:00.000Z"}\n'
+        '{"type":"message","id":"u1","parentId":"pi-turns","message":{"role":"user",'
+        '"content":[{"type":"text","text":"edit hello"}]}}\n'
+        '{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant",'
+        '"content":[{"type":"toolCall","id":"c1","name":"edit","arguments":'
+        '{"path":"/tmp/hello.py","edits":[{"oldText":"1","newText":"2"}]}}]}}\n'
+        '{"type":"message","id":"u2","parentId":"a1","message":{"role":"user",'
+        '"content":[{"type":"text","text":"add a note"}]}}\n'
+        '{"type":"message","id":"a2","parentId":"u2","message":{"role":"assistant",'
+        '"content":[{"type":"toolCall","id":"c2","name":"write","arguments":'
+        '{"path":"/tmp/NOTE.txt","content":"hi\\n"}}]}}\n',
+        encoding="utf-8",
+    )
+    ref = PiAdapter().bind_locator(path)
+    assert ref is not None
+    points = session_diff(ref)["points"]
+    assert [p["promptIndex"] for p in points] == [0, 1]
+    assert [f["path"] for f in points[0]["files"]] == ["/tmp/hello.py"]
+    assert [f["path"] for f in points[1]["files"]] == ["/tmp/NOTE.txt"]
+    assert "edit hello" in str(points[0]["prompt"])
+    assert "add a note" in str(points[1]["prompt"])
 
 
 def test_jsonl_write_is_a_list_rebuild_path() -> None:
@@ -362,3 +397,78 @@ def test_export_bundle_from_harness_ref(tmp_path: Path) -> None:
     with tarfile.open(inner, "r:gz") as tf:
         members = tf.getnames()
     assert f"{_SID}/{_FIXTURE_FILE.name}" in members
+
+
+def test_load_detail_reads_session_info_usage_and_compaction(tmp_path: Path) -> None:
+    path = tmp_path / "named.jsonl"
+    path.write_text(
+        '{"type":"session","version":3,"id":"pi-named","timestamp":"2026-08-09T12:00:00.000Z"}\n'
+        '{"type":"session_info","id":"n1","parentId":"pi-named","name":"Operator title"}\n'
+        '{"type":"thinking_level_change","id":"tl","parentId":"n1","thinkingLevel":"high"}\n'
+        '{"type":"message","id":"u1","parentId":"tl","message":{"role":"user",'
+        '"content":[{"type":"text","text":"first prompt"}]}}\n'
+        '{"type":"compaction","id":"c1","parentId":"u1","summary":"kept the plan",'
+        '"tokensBefore":9000,"firstKeptEntryId":"u1"}\n'
+        '{"type":"message","id":"a1","parentId":"c1","message":{"role":"assistant",'
+        '"content":[{"type":"text","text":"ok"}],"stopReason":"stop",'
+        '"usage":{"input":12,"output":3,"totalTokens":15}}}\n',
+        encoding="utf-8",
+    )
+    ref = PiAdapter().bind_locator(path)
+    assert ref is not None
+    meta = require_adapter(ref).load_detail(ref)
+    assert meta.title == "Operator title"
+    assert meta.reasoning_effort == "high"
+    assert meta.context_tokens_used == 15
+    assert meta.compaction_count == 1
+    assert meta.has_compaction
+    assert meta.num_messages == 2
+    types = [e.event_type for e in require_adapter(ref).parse_timeline(ref)]
+    assert "compaction_checkpoint" in types
+    assert "current_mode_update" in types
+
+
+def test_timeline_follows_leaf_and_keeps_error(tmp_path: Path) -> None:
+    path = tmp_path / "branch.jsonl"
+    path.write_text(
+        '{"type":"session","version":3,"id":"pi-br","timestamp":"2026-08-09T12:00:00.000Z"}\n'
+        '{"type":"message","id":"u1","parentId":"pi-br","message":{"role":"user",'
+        '"content":[{"type":"text","text":"old"}]}}\n'
+        '{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant",'
+        '"content":[{"type":"text","text":"abandoned"}],"stopReason":"stop"}}\n'
+        '{"type":"message","id":"u2","parentId":"pi-br","message":{"role":"user",'
+        '"content":[{"type":"text","text":"new"}]}}\n'
+        '{"type":"message","id":"a2","parentId":"u2","message":{"role":"assistant",'
+        '"content":[],"stopReason":"error","errorMessage":"OAuth refresh failed"}}\n',
+        encoding="utf-8",
+    )
+    ref = PiAdapter().bind_locator(path)
+    assert ref is not None
+    events = require_adapter(ref).parse_timeline(ref)
+    texts = [e.content for e in events if e.event_type == "user_message_chunk"]
+    assert texts == ["new"]
+    assert not any(e.content == "abandoned" for e in events)
+    assert any(e.event_type == "session_error" and "OAuth" in e.content for e in events)
+    assert require_adapter(ref).load_detail(ref).list_status_label() == "cancelled"
+
+
+def test_bash_execution_and_v4_header(tmp_path: Path) -> None:
+    path = tmp_path / "v4.jsonl"
+    path.write_text(
+        '{"kind":"header","version":4,"id":"pi-v4","createdAt":1788722825000,"cwd":"/tmp"}\n'
+        '{"type":"message","id":"b1","parentId":"pi-v4","message":{"role":"bashExecution",'
+        '"command":"echo hi","output":"hi\\n","exitCode":0}}\n',
+        encoding="utf-8",
+    )
+    ref = PiAdapter().bind_locator(path)
+    assert ref is not None
+    events = require_adapter(ref).parse_timeline(ref)
+    tools = [e for e in events if e.event_type == "tool_call"]
+    assert len(tools) == 1
+    assert tools[0].tool_name == "bash"
+    assert tools[0].raw_input.as_str("command") == "echo hi"
+    outs = [e.content for e in events if e.event_type == "tool_call_update"]
+    assert any("hi" in c for c in outs)
+    meta = require_adapter(ref).load_detail(ref)
+    assert meta.session_id == "pi-v4"
+    assert meta.run_dir == "/tmp"

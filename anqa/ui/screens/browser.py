@@ -1010,7 +1010,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _load_offline_session(self) -> None:
         """Parse the session from disk (``--no-socket``)."""
         self._overview_payload = None
-        self.meta = require_adapter(self.session_dir).load_meta(self.session_dir)
+        self.meta = require_adapter(self.session_dir).load_detail(self.session_dir)
         self.timeline = require_adapter(self.session_dir).parse_timeline(self.session_dir)
         if self.meta is not None:
             self.meta.num_events = len(self.timeline or [])
@@ -1186,7 +1186,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 or self.meta is None
             )
             if need_meta:
-                meta = require_adapter(self.session_dir).load_meta(self.session_dir)
+                meta = require_adapter(self.session_dir).load_detail(self.session_dir)
                 self.meta = meta
             if self.meta is not None:
                 self.meta.num_events = len(self.timeline or [])

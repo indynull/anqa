@@ -101,48 +101,67 @@ def store_stamp(harness: str, locator: Path | str, session_id: str) -> tuple[flo
     )
 
 
-def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta:
-    """List-grade meta from the native store."""
+def _native_meta_row(fn, harness: str, locator: Path | str, session_id: str) -> object:
     try:
-        row = _native.store_list_meta(harness, str(locator), session_id)
+        return fn(harness, str(locator), session_id)
     except RuntimeError as exc:
         msg = str(exc)
         if "not found" in msg:
             raise FileNotFoundError(msg) from exc
         raise
+
+
+def _session_meta_from_row(
+    row: object, harness: str, locator: Path | str, session_id: str
+) -> SessionMeta:
+    data = row if isinstance(row, Mapping) else {}
     meta = SessionMeta(
-        session_id=str(row.get("session_id") or session_id),
-        session_dir=Path(str(row.get("locator") or locator)),
-        model_id=str(row.get("model_id") or "unknown"),
-        title=str(row.get("title") or ""),
-        created_at=str(row.get("created_at") or ""),
-        updated_at=str(row.get("updated_at") or ""),
-        duration_seconds=_as_float(row.get("duration_seconds")),
-        tool_call_count=_as_int(row.get("tool_call_count")),
-        turn_outcome=str(row.get("turn_outcome") or ""),
-        harness=str(row.get("harness") or harness),
-        harness_version=str(row.get("harness_version") or ""),
-        run_dir=str(row.get("run_dir") or ""),
-        num_events=_as_int(row.get("num_events")),
-        has_subagents=bool(row.get("has_subagents")),
-        subagent_count=_as_int(row.get("subagent_count")),
-        context_tokens_used=_as_int(row.get("context_tokens_used")) or None,
-        context_window_usage_pct=_as_int(row.get("context_window_usage_pct")) or None,
-        context_window_tokens=_as_int(row.get("context_window_tokens")) or None,
-        turn_count=_as_int(row.get("turn_count")),
-        error_count=_as_int(row.get("error_count")),
-        tool_failure_count=_as_int(row.get("tool_failure_count")),
-        lines_added=_as_int(row.get("lines_added")),
-        lines_removed=_as_int(row.get("lines_removed")),
-        compaction_count=_as_int(row.get("compaction_count")),
-        doom_loop_warnings=_as_int(row.get("doom_loop_warnings")),
-        task_id=str(row.get("task_id") or ""),
+        session_id=str(data.get("session_id") or session_id),
+        session_dir=Path(str(data.get("locator") or locator)),
+        model_id=str(data.get("model_id") or "unknown"),
+        title=str(data.get("title") or ""),
+        created_at=str(data.get("created_at") or ""),
+        updated_at=str(data.get("updated_at") or ""),
+        duration_seconds=_as_float(data.get("duration_seconds")),
+        tool_call_count=_as_int(data.get("tool_call_count")),
+        turn_outcome=str(data.get("turn_outcome") or ""),
+        harness=str(data.get("harness") or harness),
+        harness_version=str(data.get("harness_version") or ""),
+        run_dir=str(data.get("run_dir") or ""),
+        num_events=_as_int(data.get("num_events")),
+        has_subagents=bool(data.get("has_subagents")),
+        subagent_count=_as_int(data.get("subagent_count")),
+        context_tokens_used=_as_int(data.get("context_tokens_used")) or None,
+        context_window_usage_pct=_as_int(data.get("context_window_usage_pct")) or None,
+        context_window_tokens=_as_int(data.get("context_window_tokens")) or None,
+        turn_count=_as_int(data.get("turn_count")),
+        error_count=_as_int(data.get("error_count")),
+        tool_failure_count=_as_int(data.get("tool_failure_count")),
+        lines_added=_as_int(data.get("lines_added")),
+        lines_removed=_as_int(data.get("lines_removed")),
+        compaction_count=_as_int(data.get("compaction_count")),
+        doom_loop_warnings=_as_int(data.get("doom_loop_warnings")),
+        task_id=str(data.get("task_id") or ""),
+        reasoning_effort=str(data.get("reasoning_effort") or ""),
+        num_messages=_as_int(data.get("num_messages")),
     )
-    meta.has_failures = meta.tool_failure_count > 0
+    meta.has_failures = meta.tool_failure_count > 0 or meta.error_count > 0
     meta.has_diff = (meta.lines_added + meta.lines_removed) > 0
     meta.has_compaction = meta.compaction_count > 0
     meta.has_doom = meta.doom_loop_warnings > 0
     return meta
+
+
+def list_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta:
+    """List-grade meta from the native store."""
+    row = _native_meta_row(_native.store_list_meta, harness, locator, session_id)
+    return _session_meta_from_row(row, harness, locator, session_id)
+
+
+def detail_meta(harness: str, locator: Path | str, session_id: str) -> SessionMeta:
+    """Full-file metadata for the browser / overview."""
+    row = _native_meta_row(_native.store_detail_meta, harness, locator, session_id)
+    return _session_meta_from_row(row, harness, locator, session_id)
 
 
 def event_from_native(row: object) -> TraceEvent:

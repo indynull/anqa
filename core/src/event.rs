@@ -444,6 +444,8 @@ pub struct ListMeta {
     pub compaction_count: u32,
     pub doom_loop_warnings: u32,
     pub task_id: String,
+    pub reasoning_effort: String,
+    pub num_messages: u32,
 }
 
 impl ListMeta {

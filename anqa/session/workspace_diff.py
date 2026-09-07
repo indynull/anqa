@@ -3,7 +3,8 @@
 Reads every ``rewind_points.jsonl`` record (``prompt_index``, before/after
 snapshots). When that file is missing or empty, reconstructs approximate
 per-path patches from write and edit tool calls on the timeline, or from
-``search_replace`` rows in ``updates.jsonl``.
+``search_replace`` rows in ``updates.jsonl``. Timeline reconstruction
+is one Diff point per numbered turn.
 """
 
 from __future__ import annotations
@@ -440,12 +441,7 @@ def point_from_file_diffs(rows: Sequence[Mapping[str, JsonValue]]) -> DiffPoint 
     )
 
 
-def point_from_events(events: Sequence[TraceEvent]) -> DiffPoint | None:
-    """Approximate per-path patches from write and edit tool calls.
-
-    :param events: Timeline events (any adapter).
-    :returns: One edits point, or ``None`` when no reconstructable writes exist.
-    """
+def _files_from_events(events: Sequence[TraceEvent]) -> tuple[DiffHunk, ...]:
     grouped: dict[str, list[tuple[str, str, str]]] = {}
     extras: list[DiffHunk] = []
     for ev in events:
@@ -462,27 +458,68 @@ def point_from_events(events: Sequence[TraceEvent]) -> DiffPoint | None:
             continue
         files.append(hunk)
         seen.add(hunk.path)
+    return tuple(sorted(files, key=lambda item: item.path))
+
+
+def _point_from_slice(
+    events: Sequence[TraceEvent],
+    *,
+    key: str,
+    prompt_index: int | None,
+) -> DiffPoint | None:
+    files = _files_from_events(events)
     if not files:
         return None
-    point = DiffPoint(
-        key="edits",
-        source="search_replace",
-        prompt_index=None,
-        created_at=None,
-        files=tuple(sorted(files, key=lambda item: item.path)),
-    )
     prompt, assistant = _edits_context(events)
-    if not prompt and not assistant:
-        return point
     return DiffPoint(
-        key=point.key,
-        source=point.source,
-        prompt_index=point.prompt_index,
-        created_at=point.created_at,
-        files=point.files,
+        key=key,
+        source="search_replace",
+        prompt_index=prompt_index,
+        created_at=None,
+        files=files,
         prompt_text=prompt,
         assistant_text=assistant,
     )
+
+
+def points_from_events(events: Sequence[TraceEvent]) -> tuple[DiffPoint, ...]:
+    """One edits point per numbered turn (write / edit / apply_patch tools).
+
+    :param events: Timeline events (any adapter). ``turn_number`` on the
+        events (or ``turn_started``) is the picker index.
+    :returns: Points in turn order. Empty when no reconstructable writes exist.
+    """
+    buckets: dict[int, list[TraceEvent]] = {}
+    order: list[int] = []
+    current = 0
+    numbered = False
+    for ev in events:
+        if ev.event_type == et.TURN_STARTED and ev.turn_number is not None:
+            current = int(ev.turn_number)
+            numbered = True
+        elif ev.turn_number is not None:
+            current = int(ev.turn_number)
+            numbered = True
+        buckets.setdefault(current, []).append(ev)
+        if current not in order:
+            order.append(current)
+    out: list[DiffPoint] = []
+    for turn in order:
+        idx = turn if numbered else None
+        key = f"edits-{turn}" if numbered else "edits"
+        point = _point_from_slice(buckets[turn], key=key, prompt_index=idx)
+        if point is not None:
+            out.append(point)
+    return tuple(out)
+
+
+def point_from_events(events: Sequence[TraceEvent]) -> DiffPoint | None:
+    """Approximate per-path patches from write and edit tool calls.
+
+    :param events: Timeline events (any adapter).
+    :returns: One flattened edits point, or ``None`` when no reconstructable writes exist.
+    """
+    return _point_from_slice(events, key="edits", prompt_index=None)
 
 
 def _edits_context(events: Sequence[TraceEvent]) -> tuple[str, str]:
@@ -646,10 +683,7 @@ def load_workspace_diff_doc(
             events = require_adapter(session_dir).parse_timeline(session_dir)
         except (OSError, ValueError, TypeError, FileNotFoundError):
             events = []
-    point = point_from_events(events)
-    if point is not None:
-        return WorkspaceDiff((point,))
-    return WorkspaceDiff(())
+    return WorkspaceDiff(points_from_events(events))
 
 
 def load_workspace_diff(session_dir: Path) -> tuple[str, JsonObject]:

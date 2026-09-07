@@ -259,6 +259,24 @@ def _lang_from_path(path: str) -> str:
     return _EXT_LANG.get(Path(p).suffix, "")
 
 
+def _edit_pairs(ri: dict) -> list[tuple[str, str]]:
+    """Grok ``old_string``/``new_string`` or Pi ``edits[{oldText,newText}]``."""
+    pairs: list[tuple[str, str]] = []
+    old_s, new_s = str(ri.get("old_string") or ""), str(ri.get("new_string") or "")
+    if old_s or new_s:
+        pairs.append((old_s, new_s))
+    edits = ri.get("edits")
+    if isinstance(edits, list):
+        for item in edits:
+            if not isinstance(item, dict):
+                continue
+            old_t = str(item.get("oldText") or item.get("old_string") or "")
+            new_t = str(item.get("newText") or item.get("new_string") or "")
+            if old_t or new_t:
+                pairs.append((old_t, new_t))
+    return pairs
+
+
 def _path_hint(ri: dict) -> str:
     for k in ("target_file", "file_path", "path", "target_directory"):
         v = ri.get(k)
@@ -279,6 +297,7 @@ def _shell_command_text(ri: dict) -> str:
 def _is_shell_tool(tname: str) -> bool:
     """Host shell / process tools whose primary body is a bash command."""
     return tname in (
+        "bash",
         "run_terminal_command",
         "get_command_or_subagent_output",
         "monitor",
@@ -290,8 +309,11 @@ def _is_shell_tool(tname: str) -> bool:
 def _is_file_body_tool(tname: str) -> bool:
     """Tools whose *output* is usually a file dump (prefer path lexer)."""
     return tname in (
+        "read",
         "read_file",
+        "edit",
         "search_replace",
+        "write",
         "write_file",
         "create_file",
         "edit_file",
@@ -524,44 +546,55 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
-    if tname == "search_replace":
-        fp = ri.get("file_path") or ri.get("target_file") or path_hint or ""
+    if tname in ("search_replace", "edit"):
+        fp = ri.get("file_path") or ri.get("target_file") or ri.get("path") or path_hint or ""
         if fp:
             parts.append(Text(t("tool-input-file", path=str(fp)), style="cyan"))
+        pairs = _edit_pairs(ri)
         lang = (
-            _lang_from_path(str(fp))
-            or _guess_source_lexer(str(ri.get("new_string") or ri.get("old_string") or ""))
-            or "text"
+            _lang_from_path(str(fp)) or _guess_source_lexer(pairs[0][1] if pairs else "") or "text"
         )
-        old_s, new_s = (str(ri.get("old_string") or ""), str(ri.get("new_string") or ""))
-        if old_s:
-            parts.append(Text(t("tool-field-old-string"), style="red"))
-            parts.append(
-                _syntax(
-                    _cap_str(old_s, 8000, truncate=truncate, marker=""), lang, line_numbers=True
+        for old_s, new_s in pairs:
+            if old_s:
+                parts.append(Text(t("tool-field-old-string"), style="red"))
+                parts.append(
+                    _syntax(
+                        _cap_str(old_s, 8000, truncate=truncate, marker=""),
+                        lang,
+                        line_numbers=True,
+                    )
                 )
-            )
-        if new_s:
-            parts.append(Text(t("tool-field-new-string"), style="green"))
-            parts.append(
-                _syntax(
-                    _cap_str(new_s, 8000, truncate=truncate, marker=""), lang, line_numbers=True
+            if new_s:
+                parts.append(Text(t("tool-field-new-string"), style="green"))
+                parts.append(
+                    _syntax(
+                        _cap_str(new_s, 8000, truncate=truncate, marker=""),
+                        lang,
+                        line_numbers=True,
+                    )
                 )
-            )
         extra = {
             k: v
             for k, v in ri.items()
-            if k not in ("file_path", "target_file", "old_string", "new_string")
+            if k
+            not in (
+                "file_path",
+                "target_file",
+                "path",
+                "old_string",
+                "new_string",
+                "edits",
+            )
         }
         if extra:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
-    if tname == "read_file":
-        tf = ri.get("target_file") or ri.get("file_path") or path_hint
+    if tname in ("read_file", "read"):
+        tf = ri.get("target_file") or ri.get("file_path") or ri.get("path") or path_hint
         if tf:
             parts.append(Text(t("tool-input-target-file", path=str(tf)), style="cyan"))
-        extra = {k: v for k, v in ri.items() if k not in ("target_file", "file_path")}
+        extra = {k: v for k, v in ri.items() if k not in ("target_file", "file_path", "path")}
         if extra:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
@@ -570,6 +603,23 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
                 parts.append(_syntax(json.dumps(ri, indent=2, ensure_ascii=False), "json"))
             except Exception:
                 parts.append(Text(str(ri)))
+        return parts
+    if tname in ("write", "write_file", "create_file"):
+        fp = ri.get("path") or ri.get("file_path") or ri.get("target_file") or path_hint or ""
+        if fp:
+            parts.append(Text(t("tool-input-file", path=str(fp)), style="cyan"))
+        body = str(ri.get("content") or "")
+        if body:
+            lang = _lang_from_path(str(fp)) or _guess_source_lexer(body) or "text"
+            parts.append(
+                _syntax(_cap_str(body, 8000, truncate=truncate, marker=""), lang, line_numbers=True)
+            )
+        extra = {
+            k: v for k, v in ri.items() if k not in ("path", "file_path", "target_file", "content")
+        }
+        if extra:
+            with suppress(Exception):
+                parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
     if tname == "grep":
         pat = ri.get("pattern")
@@ -581,8 +631,8 @@ def _render_tool_input(tname: str, ri: dict, *, truncate: bool = True) -> list:
             with suppress(Exception):
                 parts.append(_syntax(json.dumps(extra, indent=2, ensure_ascii=False), "json"))
         return parts
-    if tname == "list_dir":
-        td = ri.get("target_directory") or path_hint
+    if tname in ("list_dir", "ls"):
+        td = ri.get("target_directory") or ri.get("path") or path_hint
         if td:
             parts.append(Text(t("tool-input-target-directory", path=str(td)), style="blue"))
         extra = {k: v for k, v in ri.items() if k != "target_directory"}

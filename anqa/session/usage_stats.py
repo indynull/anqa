@@ -524,7 +524,7 @@ def collect_session_usage(
         path = _path_from_raw_input(ri)
         if path:
             sk = _skill_id_from_path(path)
-            if sk and (name == "read_file" or path.lower().endswith("skill.md")):
+            if sk and (name in ("read_file", "read") or path.lower().endswith("skill.md")):
                 skill_md_reads[sk] += 1
 
         if name in _MCP_BRIDGE_TOOLS:

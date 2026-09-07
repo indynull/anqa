@@ -27,7 +27,8 @@ def _header(path: Path) -> JsonObject | None:
     row = JsonlFile(path).first_object()
     if row is None:
         return None
-    if str(row.get("type") or "") == "session":
+    kind = str(row.get("type") or row.get("kind") or "")
+    if kind in {"session", "header"}:
         return row
     return None
 
@@ -222,7 +223,12 @@ class PiAdapter:
         return open_bound_archive(src, dest_root, self.bind_locator, harness=self.id)
 
     def load_detail(self, ref: SessionRef | Path | str) -> SessionMeta:
-        return self.load_meta(ref)
+        from ..core import detail_meta
+
+        path, sid = _jsonl_from_ref(ref, self.root())
+        if not path.is_file():
+            raise FileNotFoundError(f"pi session not found: {sid}")
+        return detail_meta(self.id, path, sid)
 
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         path, _sid = _jsonl_from_ref(ref, self.root())
