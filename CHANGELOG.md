@@ -136,7 +136,9 @@ Cursor (`cursor`) are registered.
   X11). On Wayland bind `anqa desktop --toggle`.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
-- The palette is on icedtea 0.16.2. Session cards highlight on release.
+- The palette is on icedtea 0.17.0. Session cards highlight on release.
+  Timeline Tail and event Raw use the compact bar switch. Enter opens
+  Turn / Filter only while that pick is focused.
   Command+C / Control+C copies the focused quote body (and writes
   the host pasteboard on macOS with `pbcopy`).
   Selected list rows use a quiet wash. A focused list has no pane ring.

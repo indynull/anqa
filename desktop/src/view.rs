@@ -170,9 +170,14 @@ fn select_session(tea: icedtea::theme::Tokens) -> Element<'static, Message> {
 fn status_copy(text: &str, err: bool, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
     let a11y = A11y::new(text.to_string(), Role::Status);
     if err {
-        icedtea::widget::info_bar(ToastKind::Danger, text.to_string(), tea, a11y)
+        icedtea::widget::banner(text.to_string(), None, Some(ToastKind::Danger), tea, a11y)
     } else {
-        icedtea::widget::meta(text.to_string(), tea, a11y)
+        icedtea::widget::label(
+            text.to_string(),
+            icedtea::widget::LabelFace::Meta,
+            tea,
+            a11y,
+        )
     }
 }
 
@@ -503,6 +508,7 @@ fn markdown_bound<'a>(
         tea,
         |_| Message::Noop,
         A11y::new(id, Role::Group),
+        icedtea::widget::MarkdownOpts::default(),
     )
 }
 
@@ -527,10 +533,9 @@ fn code_inset<'a>(
     };
     let id = id.to_string();
     // Real iced highlighter (syntect) — not plain mono ``code_block``.
-    let lang = if syntax.is_empty() { "txt" } else { syntax };
     icedtea::widget::highlighted_code(
         buf,
-        lang,
+        (!syntax.is_empty()).then_some(syntax),
         move |action| Message::Select {
             id: id.clone(),
             action,
@@ -653,6 +658,7 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
             Message::ContextDismiss,
             progress,
             tea,
+            A11y::new("context menu", Role::Menu),
         ));
     }
     let scene = layers.into();
@@ -705,7 +711,12 @@ fn tags_modal<'a>(
     .align_y(Alignment::Center);
     let card = container(
         column![
-            icedtea::widget::meta("Tags", tea, A11y::new("Tags", Role::Header)),
+            icedtea::widget::label(
+                "Tags",
+                icedtea::widget::LabelFace::Meta,
+                tea,
+                A11y::new("Tags", Role::Header)
+            ),
             chips,
             field,
             actions,
@@ -844,7 +855,12 @@ fn session_picker_at(hud: &Hud, viewport: f32) -> Element<'_, Message> {
     );
     if idle {
         return column![
-            icedtea::widget::meta("Recent", tea, A11y::new("Recent", Role::Header),),
+            icedtea::widget::label(
+                "Recent",
+                icedtea::widget::LabelFace::Meta,
+                tea,
+                A11y::new("Recent", Role::Header),
+            ),
             list,
         ]
         .spacing(gap)
@@ -1062,8 +1078,9 @@ fn browse_session_bar<'a>(
         ));
     }
     row = row.push(Space::new().width(Length::Fill));
-    row = row.push(icedtea::widget::meta(
+    row = row.push(icedtea::widget::label(
         "Search again to switch",
+        icedtea::widget::LabelFace::Meta,
         tea,
         A11y::new("Search again to switch", Role::Status),
     ));
@@ -1076,197 +1093,18 @@ fn browse_session_bar<'a>(
 }
 
 fn timeline_tail_toggle(hud: &Hud) -> Element<'_, Message> {
-    // Compact meta + track. icedtea `widget::switch` is a form row (Fill)
-    // and stretches across the picks bar.
     let tea = hud.tokens();
-    let on = hud.timeline_follow_tail();
-    let knob = iced::widget::toggler(on)
-        .style(icedtea::style::switch_style(tea))
-        .on_toggle(Message::TimelineTail);
-    icedtea::a11y::attach(
-        row![
-            icedtea::widget::meta("Tail", tea, A11y::new("Tail", Role::Header)),
-            knob,
-        ]
-        .spacing(tea.density.gap())
-        .align_y(Alignment::Center)
-        .into(),
-        &A11y::new("Tail", Role::Switch).with_checked(on),
+    icedtea::widget::switch(
+        "Tail",
+        hud.timeline_follow_tail(),
+        Message::TimelineTail,
+        tea,
+        icedtea::widget::SwitchOpts {
+            size: icedtea::widget::ControlSize::Default,
+            face: icedtea::widget::SwitchFace::Bar,
+        },
+        A11y::new("Tail", Role::Switch),
     )
-}
-
-/// icedtea `pick_list` opens on any uncaptured Enter. Forward Enter /
-/// Space only while the pick itself is focused (Tab or click).
-fn activate_when_focused(child: Element<'_, Message>) -> Element<'_, Message> {
-    ActivateWhenFocused { content: child }.into()
-}
-
-struct ActivateWhenFocused<'a, Message> {
-    content: Element<'a, Message>,
-}
-
-struct AnyFocused(bool);
-
-impl iced::advanced::widget::Operation<()> for AnyFocused {
-    fn traverse(
-        &mut self,
-        operate: &mut dyn FnMut(&mut dyn iced::advanced::widget::Operation<()>),
-    ) {
-        operate(self);
-    }
-
-    fn focusable(
-        &mut self,
-        _id: Option<&iced::widget::Id>,
-        _bounds: iced::Rectangle,
-        state: &mut dyn iced::advanced::widget::operation::Focusable,
-    ) {
-        if state.is_focused() {
-            self.0 = true;
-        }
-    }
-}
-
-fn is_activate_key(event: &iced::Event) -> bool {
-    let iced::Event::Keyboard(iced::keyboard::Event::KeyPressed { key, .. }) = event else {
-        return false;
-    };
-    matches!(
-        key,
-        iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter)
-    ) || matches!(key, iced::keyboard::Key::Character(c) if c.as_str() == " ")
-}
-
-impl<Message> iced::advanced::Widget<Message, iced::Theme, iced::Renderer>
-    for ActivateWhenFocused<'_, Message>
-{
-    fn children(&self) -> Vec<iced::advanced::widget::Tree> {
-        vec![iced::advanced::widget::Tree::new(&self.content)]
-    }
-
-    fn diff(&self, tree: &mut iced::advanced::widget::Tree) {
-        tree.diff_children(std::slice::from_ref(&self.content));
-    }
-
-    fn size(&self) -> iced::Size<iced::Length> {
-        self.content.as_widget().size()
-    }
-
-    fn layout(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        renderer: &iced::Renderer,
-        limits: &iced::advanced::layout::Limits,
-    ) -> iced::advanced::layout::Node {
-        self.content
-            .as_widget_mut()
-            .layout(&mut tree.children[0], renderer, limits)
-    }
-
-    fn update(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        event: &iced::Event,
-        layout: iced::advanced::Layout<'_>,
-        cursor: iced::mouse::Cursor,
-        renderer: &iced::Renderer,
-        clipboard: &mut dyn iced::advanced::Clipboard,
-        shell: &mut iced::advanced::Shell<'_, Message>,
-        viewport: &iced::Rectangle,
-    ) {
-        if is_activate_key(event) {
-            let mut op = AnyFocused(false);
-            self.content
-                .as_widget_mut()
-                .operate(&mut tree.children[0], layout, renderer, &mut op);
-            if !op.0 {
-                return;
-            }
-        }
-        self.content.as_widget_mut().update(
-            &mut tree.children[0],
-            event,
-            layout,
-            cursor,
-            renderer,
-            clipboard,
-            shell,
-            viewport,
-        );
-    }
-
-    fn draw(
-        &self,
-        tree: &iced::advanced::widget::Tree,
-        renderer: &mut iced::Renderer,
-        theme: &iced::Theme,
-        style: &iced::advanced::renderer::Style,
-        layout: iced::advanced::Layout<'_>,
-        cursor: iced::mouse::Cursor,
-        viewport: &iced::Rectangle,
-    ) {
-        self.content.as_widget().draw(
-            &tree.children[0],
-            renderer,
-            theme,
-            style,
-            layout,
-            cursor,
-            viewport,
-        );
-    }
-
-    fn operate(
-        &mut self,
-        tree: &mut iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'_>,
-        renderer: &iced::Renderer,
-        operation: &mut dyn iced::advanced::widget::Operation,
-    ) {
-        self.content
-            .as_widget_mut()
-            .operate(&mut tree.children[0], layout, renderer, operation);
-    }
-
-    fn mouse_interaction(
-        &self,
-        tree: &iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'_>,
-        cursor: iced::mouse::Cursor,
-        viewport: &iced::Rectangle,
-        renderer: &iced::Renderer,
-    ) -> iced::mouse::Interaction {
-        self.content.as_widget().mouse_interaction(
-            &tree.children[0],
-            layout,
-            cursor,
-            viewport,
-            renderer,
-        )
-    }
-
-    fn overlay<'b>(
-        &'b mut self,
-        tree: &'b mut iced::advanced::widget::Tree,
-        layout: iced::advanced::Layout<'b>,
-        renderer: &iced::Renderer,
-        viewport: &iced::Rectangle,
-        translation: iced::Vector,
-    ) -> Option<iced::advanced::overlay::Element<'b, Message, iced::Theme, iced::Renderer>> {
-        self.content.as_widget_mut().overlay(
-            &mut tree.children[0],
-            layout,
-            renderer,
-            viewport,
-            translation,
-        )
-    }
-}
-
-impl<'a, Message: 'a> From<ActivateWhenFocused<'a, Message>> for Element<'a, Message> {
-    fn from(value: ActivateWhenFocused<'a, Message>) -> Self {
-        Self::new(value)
-    }
 }
 
 fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
@@ -1275,33 +1113,35 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
     // shares width with Turn/Filter (one-row bar clipped or overlapped the field).
     let mut picks = row![].spacing(tea.density.gap()).align_y(Alignment::Center);
     if !hud.hide_events_turn_pick() {
-        picks = picks.push(icedtea::widget::meta(
+        picks = picks.push(icedtea::widget::label(
             "Turn",
+            icedtea::widget::LabelFace::Meta,
             tea,
             A11y::new("Turn", Role::Header),
         ));
-        picks = picks.push(activate_when_focused(icedtea::widget::pick_list(
+        picks = picks.push(icedtea::widget::pick_list(
             hud.events_turn_options(),
             Some(hud.events_turn_selected()),
             Message::EventsTurnPicked,
             tea,
             icedtea::widget::ControlSize::Default,
             A11y::new("Turn", Role::ComboBox),
-        )));
+        ));
     }
-    picks = picks.push(icedtea::widget::meta(
+    picks = picks.push(icedtea::widget::label(
         "Filter",
+        icedtea::widget::LabelFace::Meta,
         tea,
         A11y::new("Filter", Role::Header),
     ));
-    picks = picks.push(activate_when_focused(icedtea::widget::pick_list(
+    picks = picks.push(icedtea::widget::pick_list(
         &KindFilter::ALL[..],
         Some(hud.timeline_kind()),
         Message::TimelineKind,
         tea,
         icedtea::widget::ControlSize::Default,
         A11y::new("Filter", Role::ComboBox),
-    )));
+    ));
     picks = picks
         .push(Space::new().width(Length::Fill))
         .width(Length::Fill);
@@ -1309,8 +1149,9 @@ fn timeline_filter(hud: &Hud) -> Element<'_, Message> {
         picks = picks.push(timeline_tail_toggle(hud));
     }
     if let Some(cap) = timeline_count_caption(&hud.timeline_meta()) {
-        picks = picks.push(icedtea::widget::meta(
+        picks = picks.push(icedtea::widget::label(
             cap.to_string(),
+            icedtea::widget::LabelFace::Meta,
             tea,
             A11y::new(cap.to_string(), Role::Status),
         ));
@@ -1396,6 +1237,7 @@ fn overview_session(hud: &Hud) -> Element<'_, Message> {
         col = col.push(icedtea::widget::banner(
             format!("{} notes — open the Notes pane", o.notes.count),
             Some(("Notes".into(), Message::SetTab(Tab::Notes))),
+            None,
             tea,
             A11y::new("notes", Role::Status),
         ));
@@ -1411,8 +1253,9 @@ fn overview_session(hud: &Hud) -> Element<'_, Message> {
             icedtea::typo::FontFace::Ui,
         ));
     } else if summary == "No summary text for this session." {
-        col = col.push(icedtea::widget::meta(
+        col = col.push(icedtea::widget::label(
             summary,
+            icedtea::widget::LabelFace::Meta,
             hud.tokens(),
             A11y::new("summary", Role::Status),
         ));
@@ -1954,8 +1797,9 @@ fn event_body<'a>(
             ""
         };
         for block in subagent_inspect_blocks(&preview, &happened, failed) {
-            col = col.push(icedtea::widget::meta(
+            col = col.push(icedtea::widget::label(
                 block.label,
+                icedtea::widget::LabelFace::Meta,
                 tok,
                 A11y::new(block.label, Role::Header),
             ));
@@ -1969,8 +1813,9 @@ fn event_body<'a>(
         }
     }
     if let Some(hit) = timeline_query_hit(ev, hud.timeline_query()) {
-        col = col.push(icedtea::widget::meta(
+        col = col.push(icedtea::widget::label(
             format!("matched in {}: {}", hit.field, hit.snippet),
+            icedtea::widget::LabelFace::Meta,
             tok,
             A11y::new("search hit", Role::Status),
         ));
@@ -1979,9 +1824,10 @@ fn event_body<'a>(
         col = col.push(event_payload(ev, true, hud));
     }
     if ev.content_truncated {
-        col = col.push(icedtea::widget::info_bar(
-            ToastKind::Warning,
+        col = col.push(icedtea::widget::banner(
             "Content truncated by control",
+            None,
+            Some(ToastKind::Warning),
             tok,
             A11y::new("Content truncated by control", Role::Status),
         ));
@@ -2022,15 +1868,17 @@ fn note_body<'a>(
     let mut card = column![title].spacing(gap).width(Length::Fill);
     let when = note_when(n);
     if !when.is_empty() {
-        card = card.push(icedtea::widget::meta(
+        card = card.push(icedtea::widget::label(
             when.clone(),
+            icedtea::widget::LabelFace::Meta,
             tea,
             A11y::new(when, Role::Status),
         ));
     }
     if fields.is_empty() {
-        card = card.push(icedtea::widget::meta(
+        card = card.push(icedtea::widget::label(
             "Empty note",
+            icedtea::widget::LabelFace::Meta,
             tea,
             A11y::new("Empty note", Role::Status),
         ));
@@ -2044,7 +1892,12 @@ fn note_body<'a>(
         };
         card = card.push(
             column![
-                icedtea::widget::meta(label.clone(), tea, A11y::new(label.clone(), Role::Status),),
+                icedtea::widget::label(
+                    label.clone(),
+                    icedtea::widget::LabelFace::Meta,
+                    tea,
+                    A11y::new(label.clone(), Role::Status),
+                ),
                 body,
             ]
             .spacing(4)
@@ -2478,18 +2331,16 @@ fn event_detail_chrome(
 }
 
 fn event_raw_toggle(on: bool, tea: icedtea::theme::Tokens) -> Element<'static, Message> {
-    let knob = iced::widget::toggler(on)
-        .style(icedtea::style::switch_style(tea))
-        .on_toggle(Message::ToggleEventRaw);
-    icedtea::a11y::attach(
-        row![
-            icedtea::widget::meta("Raw", tea, A11y::new("Raw", Role::Header)),
-            knob,
-        ]
-        .spacing(tea.density.gap())
-        .align_y(Alignment::Center)
-        .into(),
-        &A11y::new("Raw", Role::Switch).with_checked(on),
+    icedtea::widget::switch(
+        "Raw",
+        on,
+        Message::ToggleEventRaw,
+        tea,
+        icedtea::widget::SwitchOpts {
+            size: icedtea::widget::ControlSize::Default,
+            face: icedtea::widget::SwitchFace::Bar,
+        },
+        A11y::new("Raw", Role::Switch),
     )
 }
 
@@ -2583,8 +2434,9 @@ fn diff_split(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
 fn diff_chrome(hud: &Hud, tea: icedtea::theme::Tokens) -> Element<'_, Message> {
     let mut header = row![].spacing(tea.density.gap()).align_y(Alignment::Center);
     if !hud.diff_point_options().is_empty() {
-        header = header.push(icedtea::widget::meta(
+        header = header.push(icedtea::widget::label(
             "Turn",
+            icedtea::widget::LabelFace::Meta,
             tea,
             A11y::new("Turn", Role::Header),
         ));
@@ -2796,7 +2648,12 @@ fn note_schema_field<'a>(hud: &'a Hud, spec: SchemaField) -> Element<'a, Message
     let id = spec.id.clone();
     let label = spec.label.clone();
     let val = hud.note_draft().field(&id);
-    let heading = icedtea::widget::meta(label.clone(), tea, A11y::new(label.clone(), Role::Status));
+    let heading = icedtea::widget::label(
+        label.clone(),
+        icedtea::widget::LabelFace::Meta,
+        tea,
+        A11y::new(label.clone(), Role::Status),
+    );
     let control = if spec.pick_many() {
         note_many_choices(id, spec.choices, val, tea)
     } else if spec.constrained() {
@@ -2832,7 +2689,12 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
         format!("{n_notes} notes")
     };
     let header = row![
-        icedtea::widget::meta(notes_label, tea, A11y::new("Notes count", Role::Status)),
+        icedtea::widget::label(
+            notes_label,
+            icedtea::widget::LabelFace::Meta,
+            tea,
+            A11y::new("Notes count", Role::Status)
+        ),
         note_add_btn(
             Message::StartNote {
                 turn: String::new(),
@@ -2933,8 +2795,9 @@ fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
     for spec in specs {
         form = form.push(note_schema_field(hud, spec));
     }
-    form = form.push(icedtea::widget::meta(
+    form = form.push(icedtea::widget::label(
         "Turn",
+        icedtea::widget::LabelFace::Meta,
         tea,
         A11y::new("Turn", Role::Status),
     ));
@@ -2952,8 +2815,9 @@ fn notes_compose_form(hud: &Hud) -> Element<'_, Message> {
         .width(Length::Fixed(120.0)),
     );
     if !hud.note_draft().event_index.is_empty() {
-        form = form.push(icedtea::widget::meta(
+        form = form.push(icedtea::widget::label(
             format!("Event #{}", hud.note_draft().event_index),
+            icedtea::widget::LabelFace::Meta,
             tea,
             A11y::new("Event", Role::Status),
         ));
@@ -3119,8 +2983,9 @@ fn workflow_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a
                 .color(tok.text),
         );
     }
-    col = col.push(icedtea::widget::meta(
+    col = col.push(icedtea::widget::label(
         "No workflow run on disk",
+        icedtea::widget::LabelFace::Meta,
         tok,
         A11y::new("workflow missing", Role::Status),
     ));
@@ -3143,8 +3008,9 @@ fn workflow_run_inspect<'a>(
         );
     }
     if !run.objective.is_empty() {
-        col = col.push(icedtea::widget::meta(
+        col = col.push(icedtea::widget::label(
             "Asked",
+            icedtea::widget::LabelFace::Meta,
             tok,
             A11y::new("Asked", Role::Header),
         ));
@@ -3165,8 +3031,9 @@ fn workflow_run_inspect<'a>(
             happen_bits.push(fmt_duration(ms as f64 / 1000.0));
         }
     }
-    col = col.push(icedtea::widget::meta(
+    col = col.push(icedtea::widget::label(
         "Happened",
+        icedtea::widget::LabelFace::Meta,
         tok,
         A11y::new("Happened", Role::Header),
     ));
@@ -3195,8 +3062,9 @@ fn workflow_run_inspect<'a>(
         ));
     }
     if !run.pause_message.is_empty() {
-        col = col.push(icedtea::widget::meta(
+        col = col.push(icedtea::widget::label(
             "Failed",
+            icedtea::widget::LabelFace::Meta,
             tok,
             A11y::new("Failed", Role::Header),
         ));
@@ -3290,8 +3158,9 @@ fn job_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a, Mes
         let last = last.trim();
         let child = child.trim();
         for block in schedule_inspect_blocks(prompt, human, next, last, child) {
-            col = col.push(icedtea::widget::meta(
+            col = col.push(icedtea::widget::label(
                 block.label,
+                icedtea::widget::LabelFace::Meta,
                 tok,
                 A11y::new(block.label, Role::Header),
             ));
@@ -3384,8 +3253,9 @@ fn job_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a, Mes
         String::new()
     };
     for block in job_inspect_blocks(&asked, &happened, &failed) {
-        col = col.push(icedtea::widget::meta(
+        col = col.push(icedtea::widget::label(
             block.label,
+            icedtea::widget::LabelFace::Meta,
             tok,
             A11y::new(block.label, Role::Header),
         ));
@@ -3427,8 +3297,9 @@ fn job_event_inspect<'a>(hud: &'a Hud, ev: &'a TimelineEvent) -> Element<'a, Mes
         col = col.push(text(cwd.to_string()).size(tok.meta()).color(tok.muted));
     }
     if !tail.trim().is_empty() {
-        col = col.push(icedtea::widget::meta(
+        col = col.push(icedtea::widget::label(
             "Log",
+            icedtea::widget::LabelFace::Meta,
             tok,
             A11y::new("Log", Role::Header),
         ));
@@ -3487,8 +3358,9 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             chips = chips.push(event_error_icon(tok));
         }
         if !call_id.is_empty() {
-            chips = chips.push(icedtea::widget::meta(
+            chips = chips.push(icedtea::widget::label(
                 call_id,
+                icedtea::widget::LabelFace::Meta,
                 tok,
                 A11y::new("tool call id", Role::Status),
             ));
@@ -3509,14 +3381,16 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
         };
         let fields = inspect_fields(call);
         if !fields.is_empty() {
-            col = col.push(icedtea::widget::meta(
+            col = col.push(icedtea::widget::label(
                 "Input",
+                icedtea::widget::LabelFace::Meta,
                 tok,
                 A11y::new("Input", Role::Header),
             ));
             for field in fields {
-                col = col.push(icedtea::widget::meta(
+                col = col.push(icedtea::widget::label(
                     field.label.clone(),
+                    icedtea::widget::LabelFace::Meta,
                     tok,
                     A11y::new(field.label.clone(), Role::Header),
                 ));
@@ -3543,14 +3417,16 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             }
         }
         if !imgs.is_empty() {
-            col = col.push(icedtea::widget::meta(
+            col = col.push(icedtea::widget::label(
                 "Output",
+                icedtea::widget::LabelFace::Meta,
                 tok,
                 A11y::new("Output", Role::Header),
             ));
             for img in imgs {
-                col = col.push(icedtea::widget::meta(
+                col = col.push(icedtea::widget::label(
                     img.clone(),
+                    icedtea::widget::LabelFace::Meta,
                     hud.tokens(),
                     A11y::new(img.clone(), Role::Status),
                 ));
@@ -3558,8 +3434,9 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             }
         } else if !out_body.trim().is_empty() {
             let out_syn = syntax_for_tool_output(out_tool, &path_hint, &out_body);
-            col = col.push(icedtea::widget::meta(
+            col = col.push(icedtea::widget::label(
                 "Output",
+                icedtea::widget::LabelFace::Meta,
                 tok,
                 A11y::new("Output", Role::Header),
             ));
@@ -4019,6 +3896,7 @@ mod tests {
         let _ = session_picker_at(&hud, 400.0);
         let _ = layout(&hud);
         let src = include_str!("view.rs");
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
         assert!(
             src.contains("Search events…"),
             "timeline filter keeps search"
@@ -4043,9 +3921,25 @@ mod tests {
             filter_src.contains("timeline_tail_toggle"),
             "live Tail sits on the Timeline filter bar"
         );
+        let tail = src
+            .split("fn timeline_tail_toggle")
+            .nth(1)
+            .unwrap_or("")
+            .split("fn timeline_filter")
+            .next()
+            .unwrap_or("");
         assert!(
-            !filter_src.contains("widget::switch"),
-            "form-row switch fills the picks row"
+            tail.contains("widget::switch"),
+            "Tail uses the compact BAR switch"
+        );
+        assert!(tail.contains("SwitchFace::Bar"), "Tail hugs the picks row");
+        assert!(
+            !prod.contains("ActivateWhenFocused"),
+            "pick_list opens on Enter only while focused"
+        );
+        assert!(
+            !prod.contains("iced::widget::toggler"),
+            "Tail and Raw use widget::switch"
         );
         assert!(src.contains("kit::pane_tabs"), "session-gated tabs");
     }
@@ -4224,7 +4118,14 @@ mod tests {
             |_| window,
             Some(Id::new("hud-turns")),
             tok,
-            |i| label(format!("turn {i}"), tok, A11y::new("r", Role::ListItem)),
+            |i| {
+                label(
+                    format!("turn {i}"),
+                    icedtea::widget::LabelFace::Body,
+                    tok,
+                    A11y::new("r", Role::ListItem),
+                )
+            },
             A11y::new("Turns", Role::List),
         );
         let mut tree = Tree::new(el.as_widget());
@@ -4344,6 +4245,16 @@ mod tests {
             prod.contains("icedtea::widget::highlighted_code"),
             "tool code panes must use iced highlighter, not plain mono code_block"
         );
+        assert!(
+            prod.contains("MarkdownOpts::default()"),
+            "markdown_view outline stays off"
+        );
+        assert!(prod.contains("SwitchFace::Bar"), "Tail and Raw hug the bar");
+        assert!(
+            prod.contains("LabelFace::Meta"),
+            "muted chrome uses label Meta"
+        );
+        assert!(!prod.contains("widget::meta("));
         assert!(prod.contains("icedtea::widget::selectable"));
         // Overview KV via kit (icedtea value_field + FORM_LABEL gutter).
         assert!(prod.contains("kit::labeled_value"));
@@ -4439,7 +4350,7 @@ mod tests {
         assert!(prod.contains("icedtea::widget::image_slot"));
         assert!(prod.contains("icedtea::widget::busy_overlay"));
         assert!(prod.contains("kit::status_empty"));
-        assert!(prod.contains("icedtea::widget::info_bar"));
+        assert!(prod.contains("icedtea::widget::banner"));
         assert!(prod.contains("fn diff_chrome"));
         assert!(prod.contains("fn diff_context_body"));
         assert!(prod.contains("fn diff_context_tabs"));

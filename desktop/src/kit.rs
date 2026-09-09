@@ -3,7 +3,7 @@
 //! Prefer icedtea public APIs directly. Helpers here name a anqa
 //! layout (pane tabs, form gutter), not a missing constructor.
 
-use iced::widget::{column, container, text};
+use iced::widget::{column, container, stack, text, Space};
 use iced::{Element, Length};
 use icedtea::a11y::{A11y, Role};
 use icedtea::collection::Tabs;
@@ -40,7 +40,14 @@ pub fn status_empty<'a>(
     detail: impl Into<String>,
     tea: Tokens,
 ) -> Element<'a, Message> {
-    icedtea::pattern::status_page(title, detail, None, tea)
+    let title = title.into();
+    icedtea::pattern::status_page(
+        title.clone(),
+        detail,
+        None,
+        tea,
+        A11y::new(title, Role::Status),
+    )
 }
 
 /// Browse pane tabs via icedtea [`widget::tab_bar`].
@@ -134,7 +141,12 @@ pub fn labeled_plain<'a>(
     let value = value.into();
     icedtea::layout::form(
         [(
-            widget::meta(title.to_string(), tea, A11y::new(title, Role::Status)),
+            widget::label(
+                title.to_string(),
+                widget::LabelFace::Meta,
+                tea,
+                A11y::new(title, Role::Status),
+            ),
             text(value).size(tea.body()).color(tea.text).into(),
         )],
         tea.density.space,
@@ -152,7 +164,7 @@ pub fn help_modal<'a>(
     progress: f32,
 ) -> Element<'a, Message> {
     let heading = format!("Keyboard shortcuts · anqa {}", crate::VERSION);
-    let list = icedtea::pattern::cheatsheet(table, "", tea);
+    let list = icedtea::pattern::cheatsheet(table, "", tea, A11y::new("shortcuts", Role::List));
     let search_note =
         text("Tokens appear under the box as you type. Tab completes the last token.")
             .size(tea.meta())
@@ -169,7 +181,27 @@ pub fn help_modal<'a>(
     let card = container(sheet)
         .width(Length::Fixed(560.0))
         .height(Length::Fixed(520.0));
-    icedtea::pattern::modal_card(backdrop, card.into(), progress, tea)
+    let t = icedtea::motion::visual(progress, tea.reduced_motion);
+    let sheet = icedtea::motion::overlay(
+        card.into(),
+        t,
+        icedtea::motion::Slide::Up,
+        tea,
+        A11y::new("help", Role::Dialog),
+    );
+    stack![
+        backdrop,
+        container(Space::new().width(Length::Fill).height(Length::Fill))
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(move |_| icedtea::style::dim_backdrop_at(tea, t)),
+        container(sheet)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
+    ]
+    .into()
 }
 
 #[cfg(test)]
@@ -316,15 +348,19 @@ mod tests {
     #[test]
     fn kit_uses_icedtea_constructors() {
         let src = include_str!("kit.rs");
-        assert!(src.contains("widget::value_field"));
-        assert!(src.contains("widget::progress"));
-        assert!(src.contains("widget::tab_bar"));
-        assert!(src.contains("with_disabled"));
-        assert!(src.contains("pattern::status_page"));
-        assert!(src.contains("pattern::modal_card"));
-        assert!(src.contains("pattern::cheatsheet"));
-        assert!(src.contains("layout::form"));
-        assert!(src.contains("FORM_LABEL"));
-        assert!(src.contains("text(value).size(tea.body())"));
+        let prod = src.split("#[cfg(test)]").next().expect("prod");
+        assert!(prod.contains("widget::value_field"));
+        assert!(prod.contains("widget::progress"));
+        assert!(prod.contains("widget::tab_bar"));
+        assert!(prod.contains("with_disabled"));
+        assert!(prod.contains("pattern::status_page"));
+        assert!(prod.contains("dim_backdrop_at"));
+        assert!(prod.contains("motion::overlay"));
+        assert!(!prod.contains("pattern::modal_card"));
+        assert!(prod.contains("pattern::cheatsheet"));
+        assert!(prod.contains("LabelFace::Meta"));
+        assert!(prod.contains("layout::form"));
+        assert!(prod.contains("FORM_LABEL"));
+        assert!(prod.contains("text(value).size(tea.body())"));
     }
 }

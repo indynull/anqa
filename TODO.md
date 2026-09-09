@@ -12,8 +12,6 @@ work ships.
 - icedtea `markdown_view` leaves fence ticks on a code block. HUD notes
   paint a whole-field fence with `highlighted_code` until icedtea
   renders fences cleanly.
-- icedtea `widget::switch` is a full-width form row. Timeline Tail
-  composes `meta` + `toggler` until icedtea has a compact toolbar switch.
 - icedtea `VirtualClip` wheel uses `heights.at(0)` as the line step, so a
   tall first Notes card jumps a full card per notch. Notes uses
   `widget::scroll` (60 px lines) until icedtea uses `SCROLL_LINE`.
@@ -32,9 +30,7 @@ work ships.
 - icedtea `motion::overlay` (`OverlayLayer`) does not implement
   `Widget::overlay`, so pick lists never open while that wrap is mounted.
   `page_body` and `fade_palette` mount it only while the fade runs.
-- icedtea `pick_list` (`group_keys_open`) synthesizes a click on any
-  uncaptured Enter, even when the pick is not focused. Timeline Turn /
-  Filter wrap `activate_when_focused` until icedtea checks focus.
+
 
 ## Always on (`just ci` / `just lint`)
 
