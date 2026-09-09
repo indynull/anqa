@@ -812,6 +812,23 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         is_client = getattr(app, "is_control_client", None)
         return bool(callable(is_client) and is_client())
 
+    def notes_notify_matches(self, session_id: str) -> bool:
+        """True when a ``notes/changed`` ``sessionId`` is this browser."""
+        sid = (session_id or "").strip()
+        if not sid:
+            return False
+        if self.session_dir.name == sid:
+            return True
+        if self.meta is not None and (self.meta.session_id or "").strip() == sid:
+            return True
+        from ...harness.ref import parse_session_ref_string
+
+        for raw in (str(self.session_dir), self.session_dir.name):
+            parsed = parse_session_ref_string(raw)
+            if parsed is not None and parsed[1] == sid:
+                return True
+        return False
+
     def _session_control_ref(self) -> str:
         """Session path for control RPCs (id lookup is a host-tree walk)."""
         from ...harness.ref import catalog_session_key, parse_session_ref_string
@@ -1404,7 +1421,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
                 snap = pool.submit(_thread_main).result(timeout=60)
         if not isinstance(snap, dict):
-            return NotesDoc()
+            return self._notes_doc
         notes: list[NoteEntry] = []
         raw = snap.get("notes")
         if isinstance(raw, list):
@@ -1413,6 +1430,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                     continue
                 nid = str(item.get("id") or "").strip()
                 ti = item.get("turnIndex")
+                if isinstance(ti, float) and ti == int(ti):
+                    ti = int(ti)
                 if not nid or not isinstance(ti, int):
                     continue
                 fields_raw = item.get("fields")

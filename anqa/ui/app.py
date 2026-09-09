@@ -795,7 +795,7 @@ class AnqaApp(App):
         if not isinstance(screen, BrowserScreen) or not session_id:
             return
         try:
-            if screen.session_dir.name == session_id:
+            if screen.notes_notify_matches(session_id):
                 screen._load_notes()
                 screen._update_notes_tab()
         except Exception:
@@ -2174,10 +2174,7 @@ class AnqaApp(App):
                 if hid and meta.session_id:
                     hid_sid = f"{hid}:{meta.session_id}"
                 break
-        if hid_sid and (
-            getattr(self, "is_control_client", lambda: False)()
-            or not (session_path.is_dir() or session_path.is_file())
-        ):
+        if hid_sid and not session_path.is_dir():
             session_path = Path(hid_sid)
         self._push_browser(session_path, prompt_index=prompt_index)
         if notify_control:
