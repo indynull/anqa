@@ -10,6 +10,7 @@ from pathlib import Path
 
 from anqa.session.catalog import (
     SessionCatalogCache,
+    locator_index_from_rows,
     session_meta_from_catalog_row,
 )
 
@@ -23,6 +24,28 @@ def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
     (sd / "summary.json").write_text(json.dumps(body), encoding="utf-8")
     (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     return sd
+
+
+def test_locator_index_keeps_first_row_for_duplicate_ids() -> None:
+    """Newest-first catalog: first row wins so an import is not overwritten by host."""
+    index = locator_index_from_rows(
+        [
+            {
+                "sessionId": "sess-1",
+                "harness": "grok",
+                "path": "/imports/grok/sess-1",
+                "locator": "/imports/grok/sess-1",
+            },
+            {
+                "sessionId": "sess-1",
+                "harness": "grok",
+                "path": "/host/%2Fproj/sess-1",
+                "locator": "/host/%2Fproj/sess-1",
+            },
+        ]
+    )
+    assert index["sess-1"] == "/imports/grok/sess-1"
+    assert index["grok:sess-1"] == "/imports/grok/sess-1"
 
 
 def test_list_for_rpc_cold_returns_without_joining_scan(tmp_path: Path, monkeypatch) -> None:

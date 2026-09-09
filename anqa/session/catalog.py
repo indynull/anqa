@@ -62,7 +62,11 @@ def _tags_from_row(row: JsonObject) -> tuple[str, ...]:
 
 
 def locator_index_from_rows(rows: list[JsonObject]) -> dict[str, str]:
-    """Map session id, ``harness:id``, and locator strings to the locator."""
+    """Map session id, ``harness:id``, and locator strings to the locator.
+
+    First row wins. Callers pass newest-first catalog rows so an import
+    listed above the host copy keeps ``harness:id``.
+    """
     index: dict[str, str] = {}
     for row in rows:
         loc = str(row.get("locator") or "").strip()
@@ -72,10 +76,12 @@ def locator_index_from_rows(rows: list[JsonObject]) -> dict[str, str]:
         path = str(row.get("path") or "").strip()
         harness = str(row.get("harness") or "").strip()
         for key in (loc, sid, path):
-            if key:
+            if key and key not in index:
                 index[key] = loc
         if harness and sid:
-            index[f"{harness}:{sid}"] = loc
+            hid = f"{harness}:{sid}"
+            if hid not in index:
+                index[hid] = loc
     return index
 
 
