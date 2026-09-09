@@ -282,7 +282,7 @@ class ClaudeAdapter:
         return _ref_for_file(found)
 
     def watch_hints(self) -> tuple[str, ...]:
-        return (".jsonl",)
+        return ()
 
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
         path, sid = _jsonl_from_ref(ref, self.root())

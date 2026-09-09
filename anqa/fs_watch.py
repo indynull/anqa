@@ -60,7 +60,8 @@ class TraceTreeWatch:
         self._session_dir = Path(session_dir) if session_dir is not None else None
         self._host_root = Path(host_root) if host_root is not None else None
         self._membership_only = bool(membership_only)
-        if self._session_dir is None and self._root.is_file():
+        self._file_store = self._session_dir is None and self._root.is_file()
+        if self._file_store:
             self._root = self._root.parent
             self._membership_only = True
         self._on_change = on_change
@@ -96,6 +97,7 @@ class TraceTreeWatch:
             [self._root],
             sessions,
             expand_children=not self._membership_only,
+            membership_children=not self._file_store,
         )
 
     def start(self) -> bool:
@@ -167,11 +169,13 @@ class TraceTreeWatch:
         p = Path(path)
         if any(part.casefold() == "workspace" for part in p.parts):
             return False
+        if p.name.startswith("session_search"):
+            return False
         if p.name in PLANE_FILE_NAMES:
             return True
-        from .harness.registry import adapter_watch_hits
+        from .harness.registry import adapter_store_session_file, adapter_watch_hits
 
-        if adapter_watch_hits(p):
+        if adapter_watch_hits(p) or adapter_store_session_file(p):
             return True
         if self._session_dir is not None:
             return False

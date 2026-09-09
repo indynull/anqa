@@ -227,9 +227,11 @@ notes through those methods — not ``require_adapter`` on a catalog id.
 ### 3.1 Live sessions (product behaviour)
 
 - **FS watch** (``fs_watch.TraceTreeWatch`` / ``session.watch``) is
-  non-recursive ``watchfiles`` on membership dirs and session
-  directories (plane writes land there). ``workspace/`` and ``terminal/``
-  are not list events. Clients follow socket notifications.
+  non-recursive ``watchfiles`` on membership dirs, file-store parents,
+  and the open session. Idle list freshness is a stamp poll.
+  ``workspace/``, ``terminal/``, and indexer files are not list events.
+  Clients follow socket notifications. A journal append updates meters.
+  Title, status, and model bump the catalog revision.
 - **60s read-only heartbeat** re-reads ``signals.json`` (context meter) without
   writing the traces tree or meta cache.
 - **Single-flight refresh** per session via ``session_inflight.KIND_REFRESH`` +

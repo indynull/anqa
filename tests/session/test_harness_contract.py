@@ -118,6 +118,9 @@ def test_registered_adapters_declare_support() -> None:
         assert item.product
         assert item.supported_version
         assert (Path("tests/session") / f"test_harness_{item.id}.py").is_file()
+        for hint in item.watch_hints():
+            assert not hint.startswith("."), f"{item.id} watch_hints must be exact basenames"
+            assert "/" not in hint
 
 
 def test_adapter_for_path_returns_matching_adapter(tmp_path: Path) -> None:

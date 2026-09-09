@@ -23,7 +23,7 @@ from ..tags import tags_source_mtime_ns
 from .sources import default_catalog_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
 
-_STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl")
+_STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl", "events.jsonl")
 # Bump when a cached row is missing fields the list must show.
 SNAPSHOT_ROW_FORMAT = 4
 
@@ -47,6 +47,7 @@ def host_source_stamp(session_dir: Path) -> tuple[str, int, int, int]:
         _mtime_ns(session_dir / _STAMP_FILES[0]),
         _mtime_ns(session_dir / _STAMP_FILES[1]),
         _mtime_ns(session_dir / _STAMP_FILES[2])
+        + _mtime_ns(session_dir / _STAMP_FILES[3])
         + notes_source_mtime_ns(session_dir)
         + tags_source_mtime_ns(session_dir),
     )
@@ -68,6 +69,7 @@ def ref_source_stamp(ref: SessionRef) -> tuple[str, int, int, int]:
             _mtime_ns(loc / _STAMP_FILES[0]),
             _mtime_ns(loc / _STAMP_FILES[1]),
             _mtime_ns(loc / _STAMP_FILES[2])
+            + _mtime_ns(loc / _STAMP_FILES[3])
             + notes_source_mtime_ns(loc)
             + tags_source_mtime_ns(ref),
         )

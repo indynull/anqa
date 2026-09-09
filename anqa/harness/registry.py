@@ -138,12 +138,27 @@ def adapter_watch_basenames() -> frozenset[str]:
 
 
 def adapter_watch_hits(path: Path | str) -> bool:
-    """True when *path* matches an adapter watch hint (name or suffix)."""
-    name = Path(path).name
-    names = adapter_watch_basenames()
-    if name in names:
+    """True when *path* is an exact adapter watch-hint basename."""
+    return Path(path).name in adapter_watch_basenames()
+
+
+def adapter_store_session_file(path: Path | str) -> bool:
+    """True when *path* is a file-store session (jsonl / sqlite).
+
+    Directory sessions nest plane files under the session dir and use
+    :func:`adapter_watch_hits`. Only the immediate parent is checked so
+    an ``updates.jsonl`` higher in the tree is not a session dir.
+    """
+    p = Path(path)
+    name = p.name
+    if name.startswith("session_search"):
+        return False
+    parent = p.parent
+    if (parent / "updates.jsonl").is_file() or (parent / "summary.json").is_file():
+        return False
+    if name in adapter_watch_basenames():
         return True
-    return any(hint.startswith(".") and name.endswith(hint) for hint in names)
+    return name.endswith(".jsonl") or name.endswith(".db") or name.endswith(".db-wal")
 
 
 def adapter_store_watch_paths() -> list[Path]:
@@ -310,6 +325,7 @@ __all__ = [
     "adapter_for",
     "adapter_host_roots",
     "discover_dirs",
+    "adapter_store_session_file",
     "adapter_store_watch_paths",
     "adapter_watch_basenames",
     "adapter_watch_hits",

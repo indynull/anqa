@@ -10,7 +10,8 @@ live under `~/.anqa/notes/<harness>/<session_id>/`.
 A shipped adapter lists operator-facing sessions from the default
 store (or `[catalog.roots]`), reopens that session from any client,
 builds list meta and a timeline in anqa event names, watches the
-store, writes and opens an archive (`E` / `Ctrl+O`), deletes the
+store (exact `watch_hints` basenames), writes and opens an archive
+(`E` / `Ctrl+O`), deletes the
 session (`x`), and builds Diff from rewind snapshots when the store
 wrote them, else from write and edit tool calls (and the product
 Diff rows named below). List Turn comes from that store's own last

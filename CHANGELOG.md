@@ -161,8 +161,10 @@ Cursor (`cursor`) are registered.
 - `anqad` owns the per-user Unix socket. The four clients
   attach: terminal app, desktop HUD, Emacs, and Neovim.
 - Serve arms each catalog root watch off the serve loop. The watch
-  covers membership directories and session directories (not each
-  plane file). Catalog ``has:goal`` / ``has:plan`` follow the goal
+  covers membership directories, file-store parents, and the open
+  session. A live journal append remetas that session. Meters keep
+  the current catalog revision. Idle list freshness is a stamp poll.
+  Catalog ``has:goal`` / ``has:plan`` follow the goal
   and plan files on disk.
 - Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
   free. Quitting a client leaves anqad running. A store fault

@@ -329,9 +329,9 @@ def public_catalog_row(row: JsonObject) -> JsonObject:
     return out
 
 
-# List-visible fields. Exclude ``sortEpoch`` / ``path`` so an ``updates.jsonl``
-# append that only moves mtime does not bump the catalog revision.
-_LIST_ROW_SIG_KEYS: tuple[str, ...] = (
+# Chrome fields bump the catalog revision. Meters (counts, context,
+# updatedAt, has:) update the cached row without a revision bump.
+_LIST_CHROME_KEYS: tuple[str, ...] = (
     "sessionId",
     "title",
     "label",
@@ -346,49 +346,28 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "taskId",
     "gitRepo",
     "runDir",
-    "durationSeconds",
-    "numEvents",
-    "contextUsageCompact",
-    "contextWindowUsagePct",
-    "contextTokensUsed",
-    "contextWindowTokens",
-    "toolCallCount",
-    "turnCount",
-    "errorCount",
-    "workflowCount",
-    "noteCount",
-    "goalCount",
-    "planCount",
-    "subagentCount",
-    "taskCount",
-    "jobCount",
-    "scheduleCount",
-    "failureCount",
-    "diffLineCount",
-    "compactionCount",
-    "doomCount",
-    "hasWorkflows",
-    "hasNotes",
-    "hasGoals",
-    "hasSubagents",
-    "hasJobs",
-    "hasSchedules",
-    "hasTasks",
-    "hasPlan",
-    "hasFailures",
-    "hasDiff",
-    "hasCompaction",
-    "hasDoom",
-    "hasContext",
-    "createdAt",
-    "updatedAt",
     "tags",
 )
 
 
 def list_row_fingerprint(row: JsonObject) -> tuple[JsonValue, ...]:
-    """Stable identity of the fields a catalog client paints."""
-    return tuple(row.get(key) for key in _LIST_ROW_SIG_KEYS)
+    """Stable identity of chrome fields a catalog client paints."""
+    return tuple(row.get(key) for key in _LIST_CHROME_KEYS)
+
+
+def _row_list_stamp(row: JsonObject) -> tuple[str, int, int, int]:
+    """List-row stamp for one cached catalog row."""
+    from .mtime_export import host_source_stamp, ref_source_stamp
+
+    loc_raw = str(row.get("locator") or row.get("path") or "").strip()
+    sid = str(row.get("sessionId") or "").strip()
+    hid = str(row.get("harness") or "").strip()
+    loc = Path(loc_raw) if loc_raw else Path()
+    if loc.is_dir():
+        return host_source_stamp(loc)
+    if hid and sid:
+        return ref_source_stamp(SessionRef(harness=hid, session_id=sid, locator=loc))
+    return (loc_raw or sid, 0, 0, 0)
 
 
 def list_refresh_delta(
@@ -436,11 +415,11 @@ def catalog_roots_fingerprint(
     include_host: bool | None = None,
     host_root: Path | None = None,
 ) -> tuple[tuple[str, int], ...]:
-    """Cheap identity for catalog roots (path, mtime_ns).
+    """Cheap identity for catalog roots (path, membership token).
 
-    Directory mtime changes when children are added or removed. In-place file
-    writes inside a session dir do not bump the root; those use FS-watch
-    :meth:`SessionCatalogCache.refresh_rows` instead of a full rescan.
+    Membership is the child name set. Journal and WAL writes keep that
+    set; those use FS-watch :meth:`SessionCatalogCache.refresh_rows`
+    or a stamp poll.
     """
     roots = catalog_scan_roots(
         traces_path=traces_path,
@@ -450,13 +429,15 @@ def catalog_roots_fingerprint(
     parts: list[tuple[str, int]] = []
     for root in roots:
         path = Path(root.path)
+        if path.is_file():
+            parts.append((str(path), 1 if path.exists() else 0))
+            continue
         try:
-            st = path.stat()
-            mtime_ns = int(st.st_mtime_ns)
+            names = tuple(sorted(ent.name for ent in path.iterdir()))
         except OSError:
             parts.append((str(path), 0))
             continue
-        parts.append((str(path), mtime_ns))
+        parts.append((str(path), hash(names)))
     return tuple(parts)
 
 
@@ -692,6 +673,11 @@ class SessionCatalogCache:
                 self._mono = self._time.monotonic()
                 self._host_key = host_key
                 self._fingerprint = fp
+                self._ref_stamps = {
+                    sid: _row_list_stamp(row)
+                    for row in rows
+                    if (sid := str(row.get("sessionId") or "").strip())
+                }
                 self._bump_locked(clear_deltas=True)
             new_ids = {str(row.get("sessionId") or "").strip() for row in rows}
             cb = self._on_rebuilt
@@ -778,6 +764,8 @@ class SessionCatalogCache:
         drop: set[str] = set()
         replacements: dict[str, JsonObject] = {}
         appended: list[JsonObject] = []
+        from .mtime_export import host_source_stamp
+
         for session_dir in dirs:
             try:
                 resolved = str(session_dir.resolve())
@@ -788,18 +776,24 @@ class SessionCatalogCache:
                 drop.add(str(session_dir))
                 drop.add(session_dir.name)
                 continue
+            stamp = host_source_stamp(session_dir)
+            if self._ref_stamps.get(session_dir.name) == stamp:
+                continue
             row = session_catalog_row(session_dir)
             if row is None:
                 drop.add(resolved)
                 drop.add(str(session_dir))
                 drop.add(session_dir.name)
                 continue
+            self._ref_stamps[session_dir.name] = stamp
             path_key = str(row.get("path") or resolved).strip()
             if path_key in known_paths:
                 replacements[path_key] = row
             else:
                 appended.append(row)
                 known_paths.add(path_key)
+        if not replacements and not appended and not drop:
+            return list(current), {}
         upserts, removed_ids, list_changed = list_refresh_delta(
             current, replacements, appended, drop
         )
@@ -828,7 +822,11 @@ class SessionCatalogCache:
 
     def refresh_file_store(self, store_paths: list[Path]) -> dict[str, bool]:
         """Remeta file/database locators whose stamp moved. Leaves others."""
-        from ..harness.registry import adapter_host_roots, enabled_host_adapters
+        from ..harness.registry import (
+            adapter_host_roots,
+            adapter_store_session_file,
+            enabled_host_adapters,
+        )
         from .mtime_export import ref_source_stamp
 
         events = [Path(p).expanduser() for p in store_paths]
@@ -848,7 +846,8 @@ class SessionCatalogCache:
             hints = item.watch_hints()
             hit_files = any(_file_store_event(root, events, hints) for root in files)
             hit_dirs = any(_dir_store_event(root, events, hints) for root in dirs)
-            if not hit_files and not hit_dirs:
+            hit_children = any(adapter_store_session_file(ev) for ev in events)
+            if not hit_files and not hit_dirs and not hit_children:
                 continue
             scan = files if hit_files and not hit_dirs else roots
             for ref in item.discover(scan):
@@ -904,6 +903,34 @@ class SessionCatalogCache:
             if upserts or removed_ids:
                 self._bump_locked(upserted=upserts, removed=removed_ids)
         return list_changed
+
+    def poll_stamps(self) -> dict[str, bool]:
+        """Remeta listed rows whose list stamp moved. Idle home-list freshness."""
+        with self._lock:
+            if self._building or self._rows is None:
+                return {}
+            current = list(self._rows)
+        dirs: list[Path] = []
+        files: list[Path] = []
+        for row in current:
+            loc_raw = str(row.get("locator") or "").strip()
+            if not loc_raw:
+                continue
+            loc = Path(loc_raw)
+            stamp = _row_list_stamp(row)
+            sid = str(row.get("sessionId") or "").strip()
+            if sid and self._ref_stamps.get(sid) == stamp:
+                continue
+            if loc.is_dir():
+                dirs.append(loc)
+            elif loc.is_file():
+                files.append(loc)
+        changed: dict[str, bool] = {}
+        if dirs:
+            _rows, changed = self.refresh_rows(dirs)
+        if files:
+            changed.update(self.refresh_file_store(files))
+        return changed
 
     def drop_subagent_rows(self) -> list[JsonObject]:
         """Remove harness child sessions from the warm snapshot.

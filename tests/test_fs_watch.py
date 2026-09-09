@@ -53,8 +53,10 @@ def test_membership_watch_keeps_opencode_store_files(tmp_path: Path) -> None:
     w = TraceTreeWatch(tmp_path, lambda: None, membership_only=True)
     assert w._keep_event(2, str(tmp_path / "opencode.db")) is True
     assert w._keep_event(2, str(tmp_path / "opencode.db-wal")) is True
+    assert w._keep_event(2, str(tmp_path / "session-store.db")) is True
     assert w._keep_event(2, str(tmp_path / "tmp-probe" / "sess.jsonl")) is True
     assert w._keep_event(2, str(tmp_path / "noise.bin")) is False
+    assert w._keep_event(2, str(tmp_path / "session_search.sqlite")) is False
 
 
 def test_path_relevant_ignores_workspace() -> None:
@@ -281,12 +283,12 @@ def test_membership_only_watch_does_not_subscribe_sibling_dirs(tmp_path: Path) -
     assert not any("workspace" in p.parts for p in paths)
 
 
-def test_membership_only_dir_does_not_expand_children(tmp_path: Path, monkeypatch) -> None:
-    """Jsonl / extra dir stores subscribe the membership dir only."""
+def test_membership_only_dir_watches_project_folders(tmp_path: Path, monkeypatch) -> None:
+    """Jsonl stores subscribe project folders so a new transcript is a list event."""
     extra = tmp_path / "jsonl-store"
     extra.mkdir()
-    for i in range(30):
-        (extra / f"bucket-{i:02d}").mkdir()
+    project = extra / "--mnt-dev-_git-anqa--"
+    project.mkdir()
     walked: list[str] = []
 
     def boom(root: Path) -> list[Path]:
@@ -298,7 +300,7 @@ def test_membership_only_dir_does_not_expand_children(tmp_path: Path, monkeypatc
     paths = w._collect_paths()
     assert walked == []
     assert extra in paths
-    assert not any(p.name.startswith("bucket-") for p in paths)
+    assert project in paths
 
 
 def test_file_membership_watch_dirs_is_parent_only(tmp_path: Path) -> None:

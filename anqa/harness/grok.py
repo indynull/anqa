@@ -156,14 +156,23 @@ def parse_timeline(ref: Path | str) -> list[TraceEvent]:
     return timeline_events(GROK_HARNESS_ID, path, path.name)
 
 
+_CATALOG_HINTS = frozenset(
+    {
+        "updates.jsonl",
+        "summary.json",
+        "signals.json",
+        "status.json",
+        "operator_notes.toml",
+    }
+)
+
+
 def watch_hints() -> tuple[str, ...]:
-    """Filenames that should trigger a live reload for Grok sessions.
+    """Catalog list-stamp files for a Grok session directory.
 
-    Same names as :data:`anqa.fs_watch.TRACE_FILE_HINTS`.
-
-    :returns: Basename hints (``updates.jsonl``, ``events.jsonl``, …).
+    :returns: Exact basenames (``updates.jsonl``, ``summary.json``, …).
     """
-    return TRACE_FILE_HINTS
+    return tuple(name for name in TRACE_FILE_HINTS if name in _CATALOG_HINTS)
 
 
 class GrokAdapter:

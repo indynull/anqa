@@ -265,7 +265,7 @@ class AntigravityAdapter:
         return self.bind_locator(db)
 
     def watch_hints(self) -> tuple[str, ...]:
-        return (".db", ".db-wal")
+        return ()
 
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
         db, sid = _paths_from_ref(ref, self.root())

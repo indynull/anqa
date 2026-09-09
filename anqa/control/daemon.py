@@ -12,6 +12,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..fs_watch import TraceTreeWatch
 from ..models import JsonObject
 from ..paths import resolve_catalog_root
 from ..session.catalog import (
@@ -332,23 +333,23 @@ def control_watch_specs(cache: SessionCatalogCache) -> list[tuple[Path, bool]]:
         if key in seen:
             continue
         seen.add(key)
-        specs.append((path, False))
+        specs.append((path, True))
     for raw in adapter_store_watch_paths():
         path = Path(raw).expanduser()
-        target = path if path.is_dir() else path.parent
         try:
-            key = str(target.resolve())
+            key = str(path.resolve())
         except OSError:
-            key = str(target)
+            key = str(path)
         if key in seen:
             continue
         seen.add(key)
-        specs.append((target, True))
+        specs.append((path, True))
     return specs
 
 
 # Timeline-only hints: a write here must not remeta the painted list.
 _LIST_EXCLUDE_HINTS = frozenset({"events.jsonl", "chat_history.jsonl"})
+FILE_STORE_APPLY = "file-store"
 
 
 _CATALOG_NOISE_DIR_NAMES = frozenset(
@@ -358,6 +359,13 @@ _CATALOG_NOISE_DIR_NAMES = frozenset(
         "compaction",
         "attachments",
         "terminal",
+    }
+)
+_CATALOG_NOISE_FILES = frozenset(
+    {
+        "session_search.sqlite",
+        "session_search.sqlite-wal",
+        "session_search.sqlite-shm",
     }
 )
 
@@ -425,10 +433,13 @@ class CatalogWatchApply:
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._open: set[str] = set()
         self._tails: dict[str, JournalTail] = {}
+        self._session_watches: dict[str, TraceTreeWatch] = {}
 
     @staticmethod
     def ignore_path(path: Path) -> bool:
-        """True for workspace / image / compaction trees."""
+        """True for workspace / image / compaction trees and indexer files."""
+        if path.name in _CATALOG_NOISE_FILES:
+            return True
         return any(part.casefold() in _CATALOG_NOISE_DIR_NAMES for part in path.parts)
 
     @classmethod
@@ -436,9 +447,9 @@ class CatalogWatchApply:
         """True when a watch path can change a painted session/list field."""
         if cls.ignore_path(path) or path.name in _LIST_EXCLUDE_HINTS:
             return False
-        from ..harness.registry import adapter_watch_hits
+        from ..harness.registry import adapter_store_session_file, adapter_watch_hits
 
-        return adapter_watch_hits(path)
+        return adapter_watch_hits(path) or adapter_store_session_file(path)
 
     @classmethod
     def session_dirs(cls, paths: list[str], *, roots: list[Path]) -> list[Path]:
@@ -471,7 +482,7 @@ class CatalogWatchApply:
         return list(found.values())
 
     def mark_open(self, session: Path) -> None:
-        """Start a journal tail at the current end of ``updates.jsonl``."""
+        """Start a journal tail and subscribe the open session directory."""
         sid = Path(session).name
         self._open.add(sid)
         path = Path(session) / "updates.jsonl"
@@ -481,6 +492,19 @@ class CatalogWatchApply:
             tail.inode = int(st.st_ino)
             tail.offset = int(st.st_size)
         self._tails[sid] = tail
+        if sid in self._session_watches:
+            return
+        root = Path(session)
+        if not root.is_dir():
+            return
+        watch = TraceTreeWatch(
+            root,
+            on_change=lambda: None,
+            on_paths=self.enqueue,
+            session_dir=root,
+        )
+        if watch.start():
+            self._session_watches[sid] = watch
 
     def tail_for(self, session: Path) -> JournalTail | None:
         """Open-session journal tail, if any."""
@@ -493,14 +517,20 @@ class CatalogWatchApply:
         self._loop.call_soon_threadsafe(self._accept, tuple(paths))
 
     def close(self) -> None:
-        """Cancel in-flight applies."""
+        """Cancel in-flight applies and open-session watches."""
         for task in self._tasks.values():
             task.cancel()
         self._tasks.clear()
+        for watch in self._session_watches.values():
+            watch.stop()
+        self._session_watches.clear()
 
     def _accept(self, paths: tuple[str, ...]) -> None:
         sessions = self.session_dirs(list(paths), roots=self._roots)
         if not sessions:
+            if any(self.list_rebuild_path(Path(p)) for p in paths):
+                self._pending.setdefault(FILE_STORE_APPLY, set()).update(paths)
+                self._kick(FILE_STORE_APPLY)
             return
         for session in sessions:
             sid = session.name
@@ -516,6 +546,8 @@ class CatalogWatchApply:
     async def _run(self, sid: str) -> None:
         try:
             while self._pending.get(sid):
+                if sid == FILE_STORE_APPLY:
+                    await asyncio.sleep(0.05)
                 paths = sorted(self._pending.pop(sid, set()))
                 sessions, notes, list_changed = await asyncio.to_thread(self._apply_disk, paths)
                 await self._publish(sessions, notes, list_changed)
@@ -557,6 +589,15 @@ class CatalogWatchApply:
         notes_sessions: list[Path],
         list_changed: dict[str, bool],
     ) -> None:
+        if not sessions and any(list_changed.values()):
+            try:
+                await self._server.notify(
+                    NOTIFY_SESSION_CHANGED,
+                    {"sessionId": "", "listChanged": True},
+                )
+            except Exception:
+                logger.debug("publish store membership session/changed failed", exc_info=True)
+            return
         seen: set[str] = set()
         for session in sessions:
             for target in session_changed_targets(session):
@@ -591,8 +632,6 @@ async def serve_control_forever(
     :param warm_interval: Ignored; catalog warms once at start.
     :raises ControlSocketInUse: When another live owner holds the socket.
     """
-    from ..fs_watch import TraceTreeWatch
-
     del warm_interval
     await server.start()
     if write_pid:
@@ -663,10 +702,36 @@ async def serve_control_forever(
         for root, membership_only in uniq_specs
     ]
 
+    async def _stamp_poll() -> None:
+        if not isinstance(cache, SessionCatalogCache):
+            return
+        while True:
+            await asyncio.sleep(5.0)
+            try:
+                changed = await asyncio.to_thread(cache.poll_stamps)
+            except OSError:
+                logger.debug("catalog stamp poll failed", exc_info=True)
+                continue
+            for sid, moved in changed.items():
+                if not moved:
+                    continue
+                found = cache.resolve(sid)
+                if found is None:
+                    continue
+                try:
+                    await server.publish_session_changed(found, list_changed=True)
+                except Exception:
+                    logger.debug("publish stamp-poll session/changed failed", exc_info=True)
+
+    poll_task = asyncio.create_task(_stamp_poll(), name="control-catalog-stamp-poll")
+
     try:
         assert server._server is not None
         await server._server.serve_forever()
     finally:
+        poll_task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await poll_task
         apply.close()
         for watch in watches:
             with suppress(Exception):

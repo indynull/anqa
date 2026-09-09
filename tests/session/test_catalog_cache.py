@@ -703,3 +703,139 @@ def test_session_meta_from_catalog_row_host_path_wins(tmp_path, monkeypatch) -> 
         }
     )
     assert meta is not None
+
+
+_USER_CHUNK = (
+    '{"timestamp":1,"params":{"update":{"sessionUpdate":"user_message_chunk",'
+    '"content":{"type":"text","text":"hi"}}}}\n'
+)
+
+
+def test_adapter_watch_hits_are_exact_basenames() -> None:
+    """A transcript suffix is not a list hit for every store."""
+    from anqa.harness.registry import adapter_watch_hits
+
+    assert adapter_watch_hits("updates.jsonl") is True
+    assert adapter_watch_hits("summary.json") is True
+    assert adapter_watch_hits("opencode.db") is True
+    assert adapter_watch_hits("opencode.db-wal") is True
+    assert adapter_watch_hits("session-store.db") is True
+    assert adapter_watch_hits("random.jsonl") is False
+    assert adapter_watch_hits("foo.db") is False
+    assert adapter_watch_hits("foo.db-wal") is False
+    assert adapter_watch_hits("session_search.sqlite") is False
+
+
+def test_adapter_store_session_file_uses_immediate_parent(tmp_path: Path) -> None:
+    """An updates.jsonl on an ancestor is not a directory session."""
+    from anqa.harness.registry import adapter_store_session_file
+
+    (tmp_path / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    project = tmp_path / "--mnt-dev-_git-anqa--"
+    project.mkdir()
+    session = project / "2026-09-10T00-00-00Z_sid.jsonl"
+    session.write_text("{}\n", encoding="utf-8")
+    assert adapter_store_session_file(session) is True
+    grok = tmp_path / "grok-sid"
+    grok.mkdir()
+    (grok / "summary.json").write_text("{}", encoding="utf-8")
+    (grok / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    assert adapter_store_session_file(grok / "extra.jsonl") is False
+
+
+def test_apply_meter_append_does_not_bump_revision(tmp_path: Path) -> None:
+    """Growing the journal (event count / updatedAt) is not a catalog revision."""
+    from anqa.control.daemon import apply_fs_catalog_events
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    rev = cache.revision
+    events_before = next(int(row["numEvents"]) for row in cache.get() if row["sessionId"] == "one")
+    with (one / "updates.jsonl").open("a", encoding="utf-8") as fh:
+        fh.write(_USER_CHUNK)
+    _sessions, _notes, changed = apply_fs_catalog_events(
+        cache, [str(one / "updates.jsonl")], [traces]
+    )
+    assert changed.get("one") is False
+    assert cache.revision == rev
+    poll = cache.list_for_rpc(since_revision=rev)
+    assert poll["unchanged"] is True
+    events_after = next(int(row["numEvents"]) for row in cache.get() if row["sessionId"] == "one")
+    assert events_after >= events_before
+
+
+def test_apply_stamp_equal_does_not_remeta(tmp_path: Path) -> None:
+    """A hint write whose list stamp is unchanged does not remeta."""
+    from unittest.mock import patch
+
+    from anqa.control.daemon import apply_fs_catalog_events
+    from anqa.session import catalog as catalog_mod
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    rev = cache.revision
+    with patch.object(
+        catalog_mod, "session_catalog_row", wraps=catalog_mod.session_catalog_row
+    ) as spy:
+        apply_fs_catalog_events(cache, [str(one / "updates.jsonl")], [traces])
+    assert spy.call_count == 0
+    assert cache.revision == rev
+
+
+def test_apply_indexer_sqlite_is_noise(tmp_path: Path) -> None:
+    """session_search.sqlite is never a catalog remeta."""
+    from unittest.mock import patch
+
+    from anqa.control.daemon import apply_fs_catalog_events
+    from anqa.session import catalog as catalog_mod
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    rev = cache.revision
+    index = one / "session_search.sqlite"
+    index.write_bytes(b"")
+    (one / "session_search.sqlite-wal").write_bytes(b"")
+    with patch.object(catalog_mod, "session_catalog_row") as spy:
+        _sessions, _notes, changed = apply_fs_catalog_events(
+            cache,
+            [str(index), str(one / "session_search.sqlite-wal")],
+            [traces],
+        )
+    assert spy.call_count == 0
+    assert not changed
+    assert cache.revision == rev
+
+
+def test_publish_store_membership_notifies_empty_session() -> None:
+    """A new file-store row must notify even when no session directory mapped."""
+    import asyncio
+
+    from anqa.control.daemon import CatalogWatchApply
+    from anqa.models import JsonObject
+
+    notes: list[tuple[str, JsonObject]] = []
+
+    class _Server:
+        async def publish_session_changed(self, session: Path, *, list_changed: bool) -> None:
+            notes.append(("session", {"sessionId": session.name, "listChanged": list_changed}))
+
+        async def notify(self, method: str, params: JsonObject) -> None:
+            notes.append((method, params))
+
+        async def publish_notes_changed(self, session: Path) -> None:
+            del session
+
+    loop = asyncio.new_event_loop()
+    apply = CatalogWatchApply(server=_Server(), cache=None, roots=[], loop=loop)
+    loop.run_until_complete(apply._publish([], [], {"ses_new": True}))
+    loop.close()
+    assert notes == [("session/changed", {"sessionId": "", "listChanged": True})]

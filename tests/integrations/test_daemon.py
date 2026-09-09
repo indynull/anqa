@@ -887,7 +887,7 @@ async def test_serve_watch_apply_runs_off_observer_timer(
 def test_control_watch_specs_mark_extra_stores_membership_only(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Catalog trees list sessions; extra adapter stores do not."""
+    """Membership watch on catalog trees and extra adapter stores."""
     from anqa.control.daemon import control_watch_specs
     from anqa.session.catalog import SessionCatalogCache
 
@@ -913,6 +913,6 @@ def test_control_watch_specs_mark_extra_stores_membership_only(
     specs = control_watch_specs(cache)
     by_path = {path.resolve(): only for path, only in specs}
     assert traces.resolve() in by_path
-    assert by_path[traces.resolve()] is False
-    assert store_dir.resolve() in by_path
-    assert by_path[store_dir.resolve()] is True
+    assert by_path[traces.resolve()] is True
+    assert extra.resolve() in by_path
+    assert by_path[extra.resolve()] is True

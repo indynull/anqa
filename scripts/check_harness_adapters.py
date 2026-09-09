@@ -36,6 +36,9 @@ def main() -> int:
             errs.append(f"{hid}: empty product")
         if not (item.supported_version or "").strip():
             errs.append(f"{hid}: empty supported_version")
+        for hint in item.watch_hints():
+            if hint.startswith(".") or "/" in hint:
+                errs.append(f"{hid}: watch_hints must be exact basenames, got {hint!r}")
         test = ROOT / "tests" / "session" / f"test_harness_{hid}.py"
         if not test.is_file():
             errs.append(f"{hid}: missing {test.relative_to(ROOT)}")

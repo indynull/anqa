@@ -12,7 +12,6 @@ from pathlib import Path
 from ..harness.registry import discover_dirs
 from .sources import (
     default_catalog_root,
-    is_encoded_cwd_name,
     is_host_skip_dir_name,
     list_host_session_dirs,
 )
@@ -32,10 +31,13 @@ def plane_file_paths(session_dir: Path) -> list[Path]:
     return [root / name for name in PLANE_FILE_NAMES]
 
 
-def membership_watch_dirs(roots: list[Path]) -> list[Path]:
+def membership_watch_dirs(roots: list[Path], *, child_dirs: bool = True) -> list[Path]:
     """Directories whose direct children appearing or vanishing change membership.
 
     A file root (sqlite store) contributes only its parent directory.
+    A directory root also includes one level of project folders (Pi
+    ``--cwd--``, Claude projects, Grok ``%2F…`` buckets) when
+    *child_dirs* is true.
     """
     out: list[Path] = []
     seen: set[str] = set()
@@ -54,6 +56,8 @@ def membership_watch_dirs(roots: list[Path]) -> list[Path]:
         if key not in seen:
             seen.add(key)
             out.append(root)
+        if not child_dirs:
+            continue
         try:
             children = list(root.iterdir())
         except OSError:
@@ -63,11 +67,10 @@ def membership_watch_dirs(roots: list[Path]) -> list[Path]:
                 continue
             if is_host_skip_dir_name(child.name):
                 continue
-            if is_encoded_cwd_name(child.name):
-                bucket = str(child)
-                if bucket not in seen:
-                    seen.add(bucket)
-                    out.append(child)
+            child_key = str(child)
+            if child_key not in seen:
+                seen.add(child_key)
+                out.append(child)
     return out
 
 
@@ -123,12 +126,13 @@ def watch_target_paths(
     session_dirs: list[Path],
     *,
     expand_children: bool = True,
+    membership_children: bool = True,
 ) -> list[Path]:
     """Directories passed to watchfiles (non-recursive). Never ``workspace/``.
 
-    *expand_children* is the directory-session path: one extra
-    level so new session dirs are subscribed. Extra adapter stores
-    (sqlite / jsonl) pass ``False`` and watch membership dirs only.
+    *expand_children* is a second level under membership dirs (Grok
+    session directories). *membership_children* is the first level
+    (project folders). A sqlite file store passes both false.
     """
     out: list[Path] = []
     seen: set[str] = set()
@@ -142,7 +146,7 @@ def watch_target_paths(
         seen.add(key)
         out.append(path)
 
-    for path in membership_watch_dirs(roots):
+    for path in membership_watch_dirs(roots, child_dirs=membership_children):
         _add(path)
         if not expand_children:
             continue
