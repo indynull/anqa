@@ -118,6 +118,15 @@ pub fn brand_role_color(role: BrandRole, tok: Tokens) -> Color {
     }
 }
 
+/// Same mix as TUI ``TAG_WASH`` (primary / success / … onto surface).
+pub const BADGE_WASH: f32 = 0.22;
+
+/// Badge fill and readable ink for a role color.
+pub fn badge_face(ink: Color, tok: Tokens) -> (Color, Color) {
+    let wash = mix(ink, tok.surface, BADGE_WASH);
+    (wash, ink_on(ink, wash))
+}
+
 const CATALOG: &str = include_str!("../assets/textual-themes.json");
 const PAIRS: &str = include_str!("../assets/theme-pairs.json");
 
@@ -699,6 +708,21 @@ mod tests {
         assert_eq!(brand_role_color(BrandRole::Running, tok), tok.warning);
         assert_eq!(brand_role_color(BrandRole::Failed, tok), tok.danger);
         assert_eq!(brand_role_color(BrandRole::Cancelled, tok), tok.muted);
+    }
+
+    #[test]
+    fn badge_face_washes_role_ink_onto_surface() {
+        use crate::format::BrandRole;
+        let tok = tokens("textual-dark");
+        assert_eq!(BADGE_WASH, 0.22);
+        let (wash, fg) = badge_face(tok.success, tok);
+        assert_eq!(wash, mix(tok.success, tok.surface, BADGE_WASH));
+        assert_eq!(fg, ink_on(tok.success, wash));
+        let (cream_wash, _) = badge_face(brand_role_color(BrandRole::Cream, tok), tok);
+        assert_eq!(cream_wash, mix(tok.text, tok.surface, BADGE_WASH));
+        assert_ne!(cream_wash, mix(tok.primary, tok.surface, BADGE_WASH));
+        let (tag_wash, _) = badge_face(tok.primary, tok);
+        assert_eq!(tag_wash, mix(tok.primary, tok.surface, BADGE_WASH));
     }
 
     #[test]

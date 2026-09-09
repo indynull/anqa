@@ -156,6 +156,9 @@ def test_tag_pills_are_padded_and_cap_with_count() -> None:
 
 def test_tag_rich_style_is_theme_primary_not_a_status_role() -> None:
     """No running app: primary falls back to emphasis, never success/caution/danger."""
+    from anqa.ui.styles import TAG_WASH
+
+    assert TAG_WASH == 0.22
     style = tag_rich_style()
     assert style == EMPHASIS
     assert "green" not in style

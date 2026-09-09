@@ -181,22 +181,12 @@ fn status_copy(text: &str, err: bool, tea: icedtea::theme::Tokens) -> Element<'s
     }
 }
 
-fn tone_variant(tone: &str) -> Variant {
+fn tone_ink(tone: &str, tea: icedtea::theme::Tokens) -> iced::Color {
     match tone {
-        "complete" => Variant::Success,
-        "running" => Variant::Warning,
-        "cancelled" => Variant::Danger,
-        _ => Variant::Quiet,
-    }
-}
-
-fn brand_variant(role: BrandRole) -> Variant {
-    match role {
-        BrandRole::Complete => Variant::Success,
-        BrandRole::Running => Variant::Warning,
-        BrandRole::Failed => Variant::Danger,
-        BrandRole::Cream => Variant::Primary,
-        BrandRole::Cancelled => Variant::Quiet,
+        "complete" => tea.success,
+        "running" => tea.warning,
+        "cancelled" => tea.danger,
+        _ => tea.muted,
     }
 }
 
@@ -206,7 +196,7 @@ fn label_badge(
     role: BrandRole,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    paint_badge(label.into(), brand_variant(role), tea)
+    paint_badge(label.into(), crate::theme::brand_role_color(role, tea), tea)
 }
 
 /// Session / turn / severity status — same readable badge face everywhere.
@@ -215,74 +205,49 @@ fn status_chip(
     tone: &str,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
-    paint_badge(label.into(), tone_variant(tone), tea)
+    paint_badge(label.into(), tone_ink(tone, tea), tea)
 }
 
-/// Smaller than status chips: Label Small type, hairline pad, primary wash.
+/// Session tag — same small badge as status; primary wash like the terminal pills.
 fn tag_badge(
     label: String,
     tea: icedtea::theme::Tokens,
     on_press: Option<Message>,
 ) -> Element<'static, Message> {
-    let a11y = if on_press.is_some() {
-        A11y::button(label.clone())
-    } else {
-        A11y::new(label.clone(), Role::Status)
-    };
-    let wash = icedtea::theme::mix(tea.primary, tea.surface, 0.22);
-    let ink = crate::theme::ink_on(tea.primary, wash);
-    let radius = tea.radius(icedtea::m3::shape::Component::Badge);
-    let size = (icedtea::m3::TypeRole::LabelSmall.scale().size * tea.font_scale).round();
-    let face = container(
-        text(label)
-            .size(size)
-            .color(ink)
-            .wrapping(iced::widget::text::Wrapping::None),
-    )
-    .padding(Padding {
-        top: 1.0,
-        right: 5.0,
-        bottom: 1.0,
-        left: 5.0,
-    })
-    .style(move |_| {
-        let mut st = icedtea::style::fill(wash, ink);
-        st.border.radius = radius;
-        st
-    });
-    let child: Element<'static, Message> = match on_press {
-        Some(msg) => mouse_area(face).on_press(msg).into(),
-        None => face.into(),
-    };
-    icedtea::a11y::attach(child, &a11y)
+    let mark = paint_badge(label.clone(), tea.primary, tea);
+    match on_press {
+        Some(msg) => {
+            icedtea::a11y::attach(mouse_area(mark).on_press(msg).into(), &A11y::button(label))
+        }
+        None => mark,
+    }
 }
 
 fn paint_badge(
     label: String,
-    variant: Variant,
+    ink: iced::Color,
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let a11y = A11y::new(label.clone(), Role::Status);
-    let (wash, ink, mut border, shadow) = icedtea::widget::chip_face(tea, variant);
-    border.radius = tea.radius(icedtea::m3::shape::Component::Badge);
-    // Pill ends eat icedtea Small [2, 5]; keep a readable inset.
+    let (wash, fg) = crate::theme::badge_face(ink, tea);
+    let radius = tea.radius(icedtea::m3::shape::Component::Badge);
+    // icedtea BadgeSize::Small pad; Wrapping::None keeps a type label on one line.
     icedtea::a11y::attach(
         container(
             text(label)
                 .size(tea.meta())
-                .color(ink)
+                .color(fg)
                 .wrapping(iced::widget::text::Wrapping::None),
         )
         .padding(Padding {
-            top: 4.0,
-            right: 10.0,
-            bottom: 4.0,
-            left: 10.0,
+            top: 2.0,
+            right: 5.0,
+            bottom: 2.0,
+            left: 5.0,
         })
         .style(move |_| {
-            let mut st = icedtea::style::fill(wash, ink);
-            st.border = border;
-            st.shadow = shadow;
+            let mut st = icedtea::style::fill(wash, fg);
+            st.border.radius = radius;
             st
         })
         .into(),
@@ -4082,13 +4047,14 @@ mod tests {
 
     #[test]
     fn session_status_tones_stay_distinct_and_readable() {
-        assert_eq!(tone_variant("complete"), Variant::Success);
-        assert_eq!(tone_variant("running"), Variant::Warning);
-        assert_eq!(tone_variant("awaiting"), Variant::Quiet);
-        assert_eq!(tone_variant("ending"), Variant::Quiet);
-        assert_eq!(tone_variant("cancelled"), Variant::Danger);
-        let _ = status_chip("complete", "complete", tea());
-        let _ = status_chip("running", "running", tea());
+        let tok = tea();
+        assert_eq!(tone_ink("complete", tok), tok.success);
+        assert_eq!(tone_ink("running", tok), tok.warning);
+        assert_eq!(tone_ink("awaiting", tok), tok.muted);
+        assert_eq!(tone_ink("ending", tok), tok.muted);
+        assert_eq!(tone_ink("cancelled", tok), tok.danger);
+        let _ = status_chip("complete", "complete", tok);
+        let _ = status_chip("running", "running", tok);
     }
 
     #[test]
@@ -4183,12 +4149,30 @@ mod tests {
             badge.contains("Wrapping::None"),
             "badge text must stay on one line"
         );
-        assert!(prod.contains("chip_face"));
+        assert!(
+            badge.contains("top: 2.0"),
+            "badges use icedtea Small pad, not Large"
+        );
+        assert!(badge.contains("badge_face"));
+        assert!(!badge.contains("chip_face"));
+        assert!(!badge.contains("top: 4.0"));
         assert!(prod.contains("fn session_state_row"));
         assert!(prod.contains("fn session_tag_chips"));
         assert!(prod.contains("fn with_tag_chips"));
         assert!(prod.contains("fn tag_badge"));
-        assert!(prod.contains("TypeRole::LabelSmall"));
+        assert!(!prod.contains("TypeRole::LabelSmall"));
+        let tag = prod
+            .split("fn tag_badge")
+            .nth(1)
+            .expect("tag_badge")
+            .split("fn paint_badge")
+            .next()
+            .expect("tag_badge body");
+        assert!(
+            tag.contains("paint_badge("),
+            "tags use the same badge face as status"
+        );
+        assert!(!tag.contains("Variant::Primary"));
         let tags = prod
             .split("fn session_tag_chips")
             .nth(1)
@@ -4424,7 +4408,9 @@ mod tests {
         assert!(!prod.contains("visual_lines("));
         assert!(!prod.contains(".height(height)"));
         assert!(prod.contains("matched in {}:"));
-        assert!(prod.contains("fn brand_variant"));
+        assert!(prod.contains("fn tone_ink"));
+        assert!(prod.contains("brand_role_color"));
+        assert!(!prod.contains("fn brand_variant"));
         assert!(!prod.contains("accordion_view"));
         assert!(prod.contains("fn note_list_card"));
         assert!(!prod.contains("widget::expander"));
@@ -4453,7 +4439,9 @@ mod tests {
         assert!(prod.contains("fn event_list_heading"));
         assert!(prod.contains("fn event_type_paint"));
         assert!(prod.contains("fn label_badge"));
-        assert!(prod.contains("fn brand_variant"));
+        assert!(prod.contains("fn tone_ink"));
+        assert!(prod.contains("brand_role_color"));
+        assert!(!prod.contains("fn brand_variant"));
         let heading = prod
             .split("fn event_list_heading")
             .nth(1)

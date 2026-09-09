@@ -138,7 +138,9 @@ Cursor (`cursor`) are registered.
   anqa.
 - The palette is on icedtea 0.17.0. Session cards highlight on release.
   Timeline Tail and event Raw use the compact bar switch. Enter opens
-  Turn / Filter only while that pick is focused.
+  Turn / Filter only while that pick is focused. Status, type, source,
+  and session tags share one small badge (icedtea Small pad, role ink
+  on a surface wash — same mix as the terminal tag pills).
   Command+C / Control+C copies the focused quote body (and writes
   the host pasteboard on macOS with `pbcopy`).
   Selected list rows use a quiet wash. A focused list has no pane ring.
