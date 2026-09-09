@@ -187,6 +187,13 @@ ACTIONS: tuple[KeyAction, ...] = (
         ActionSurface.TUI,
         overlay_scopes=frozenset({ActionScope.HOME, ActionScope.BROWSER}),
     ),
+    _row(
+        "session.tag",
+        ActionScope.HOME,
+        "t",
+        ActionSurface.SHARED,
+        overlay_scopes=_NAV,
+    ),
     # Session browser.
     _row("browser.view_filter", ActionScope.BROWSER, "v", ActionSurface.TUI),
     _row("browser.event_reader", ActionScope.BROWSER, "enter", ActionSurface.TUI),

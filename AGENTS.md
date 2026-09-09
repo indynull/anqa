@@ -641,10 +641,10 @@ next / previous turn; Enter opens a full-width event (Esc returns to the list)
 or a child from a spawn/finish bookend, or the focused note;
 ``x`` deletes the focused note (double-press);
 session delete is on the session list; ``N`` new note;
-``E`` export. ``harness:<id>`` filters the catalog.
+``E`` export; ``t`` tags. ``harness:<id>`` filters the catalog.
 
 Sessions home also: ``x`` delete (double-press); ``Ctrl+O`` import
-an archive. All adapter stores load.
+an archive; ``t`` tags. All adapter stores load.
 
 ### 6.10 TUI and HUD: same action, same key
 
@@ -680,6 +680,7 @@ against the catalog.
 | ``h`` / ``l`` (Left / Right) | Timeline turns: both step the Turn filter |
 | ``Enter`` | Open / drill (edits the focused TUI or HUD note) |
 | ``Ctrl+O`` | Import a harness archive or anqa export (session list) |
+| ``t`` | Tag the selected or focused session |
 | ``N`` | Notes (TUI new note; HUD Notes pane) |
 | ``x`` | Double-press deletes the focused note on TUI Notes and HUD Notes |
 
@@ -733,6 +734,7 @@ Color by **role**, never a raw hex on the default path.
 | danger | error | ``red`` / ``$error`` | ``tokens.danger`` |
 | quiet | chrome, marketplace | ``dim`` / ``$text-muted`` | ``tokens.muted`` |
 | emphasis | prompts, reads | default / ``$text`` | ``tokens.text`` |
+| primary | operator tags | ``$primary`` / :func:`~anqa.ui.styles.tag_rich_style` | ``Variant::Primary`` |
 
 | Layer | File |
 |-------|------|

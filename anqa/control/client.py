@@ -500,6 +500,18 @@ class ControlClient:
         )
         return as_json_object(result) if isinstance(result, dict) else {}
 
+    async def tags_get(self, session: str) -> JsonObject:
+        """Call ``tags/get`` for *session*."""
+        result = await self.request("tags/get", {"session": session})
+        return as_json_object(result) if isinstance(result, dict) else {}
+
+    async def tags_set(self, sessions: list[str], tags: list[str]) -> JsonObject:
+        """Call ``tags/set`` for *sessions*."""
+        result = await self.request(
+            "tags/set", as_json_object({"sessions": sessions, "tags": tags})
+        )
+        return as_json_object(result) if isinstance(result, dict) else {}
+
     async def session_import(self, path: str) -> JsonObject:
         """Call ``session/import`` for an archive, bundle, or session directory."""
         result = await self.request("session/import", {"path": path})

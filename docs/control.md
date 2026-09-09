@@ -87,6 +87,8 @@ The owner accepts either and replies in the same frame the client used.
 | `notes/list` | Notes snapshot (`revision`, schema, notes) |
 | `notes/upsert` | Write a note (`expectedRevision`) |
 | `notes/delete` | Delete a note (`expectedRevision`) |
+| `tags/get` | Tags on one session plus the catalog vocabulary |
+| `tags/set` | Replace the tag set on one or more sessions |
 
 ### `session/list`
 
@@ -102,6 +104,7 @@ Space is AND. Full token list: this schema's `catalogQuery`.
 | `harness:grok` `harness:opencode` `harness:pi` `harness:claude` `harness:gemini` `harness:antigravity` `harness:copilot` `harness:codex` `harness:cursor` | Disk adapter id. |
 | `model:` | Model id substring. |
 | `task:` | Task id substring. |
+| `tag:` | Operator tag (comma is AND). |
 | `workflows:` with `>` `>=` `<` `<=` `=` | Count of workflows. |
 | `notes:` with `>` `>=` `<` `<=` `=` | Count of notes. |
 | `goals:` with `>` `>=` `<` `<=` `=` | Count of goals. |
@@ -156,5 +159,6 @@ and stamps its own source.
 | `session/selected` | After `session/open` |
 | `session/changed` | Session files or status changed. `listChanged` is false when only the trace grew. |
 | `notes/changed` | Notes written or deleted |
+| `tags/changed` | Tags written on one or more sessions |
 
 No `id` on these messages (JSON-RPC notifications).

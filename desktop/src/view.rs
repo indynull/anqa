@@ -213,6 +213,45 @@ fn status_chip(
     paint_badge(label.into(), tone_variant(tone), tea)
 }
 
+/// Smaller than status chips: Label Small type, hairline pad, primary wash.
+fn tag_badge(
+    label: String,
+    tea: icedtea::theme::Tokens,
+    on_press: Option<Message>,
+) -> Element<'static, Message> {
+    let a11y = if on_press.is_some() {
+        A11y::button(label.clone())
+    } else {
+        A11y::new(label.clone(), Role::Status)
+    };
+    let wash = icedtea::theme::mix(tea.primary, tea.surface, 0.22);
+    let ink = crate::theme::ink_on(tea.primary, wash);
+    let radius = tea.radius(icedtea::m3::shape::Component::Badge);
+    let size = (icedtea::m3::TypeRole::LabelSmall.scale().size * tea.font_scale).round();
+    let face = container(
+        text(label)
+            .size(size)
+            .color(ink)
+            .wrapping(iced::widget::text::Wrapping::None),
+    )
+    .padding(Padding {
+        top: 1.0,
+        right: 5.0,
+        bottom: 1.0,
+        left: 5.0,
+    })
+    .style(move |_| {
+        let mut st = icedtea::style::fill(wash, ink);
+        st.border.radius = radius;
+        st
+    });
+    let child: Element<'static, Message> = match on_press {
+        Some(msg) => mouse_area(face).on_press(msg).into(),
+        None => face.into(),
+    };
+    icedtea::a11y::attach(child, &a11y)
+}
+
 fn paint_badge(
     label: String,
     variant: Variant,
@@ -295,6 +334,24 @@ fn session_state_row(
     row.into()
 }
 
+fn session_tag_chips(
+    tags: &[String],
+    tea: icedtea::theme::Tokens,
+) -> Option<Element<'static, Message>> {
+    let (shown, extra) = crate::format::visible_tags(tags);
+    if shown.is_empty() {
+        return None;
+    }
+    let mut chips = row![].spacing(6).align_y(Alignment::Center);
+    for name in shown {
+        chips = chips.push(tag_badge(name, tea, None));
+    }
+    if extra > 0 {
+        chips = chips.push(muted_meta(format!("+{extra}"), tea));
+    }
+    Some(chips.into())
+}
+
 fn session_state_from_row(
     row: &crate::model::SessionRow,
     tea: icedtea::theme::Tokens,
@@ -305,20 +362,39 @@ fn session_state_from_row(
     } else {
         row.harness.as_str()
     };
-    session_state_row(
-        &row.status_label(),
-        harness,
-        &row.model,
-        &taken,
-        false,
-        row.imported || row.origin.eq_ignore_ascii_case("import"),
+    with_tag_chips(
+        session_state_row(
+            &row.status_label(),
+            harness,
+            &row.model,
+            &taken,
+            false,
+            row.imported || row.origin.eq_ignore_ascii_case("import"),
+            tea,
+            row.context_usage_compact.trim(),
+        ),
+        &row.tags,
         tea,
-        row.context_usage_compact.trim(),
     )
+}
+
+fn with_tag_chips(
+    state: Element<'static, Message>,
+    tags: &[String],
+    tea: icedtea::theme::Tokens,
+) -> Element<'static, Message> {
+    match session_tag_chips(tags, tea) {
+        Some(chips) => row![state, chips]
+            .spacing(8)
+            .align_y(Alignment::Center)
+            .into(),
+        None => state,
+    }
 }
 
 fn session_state_from_meta(
     meta: &crate::wire::SessionMeta,
+    tags: &[String],
     tea: icedtea::theme::Tokens,
 ) -> Element<'static, Message> {
     let taken = session_duration_chip(meta.duration_seconds, &meta.duration);
@@ -327,15 +403,19 @@ fn session_state_from_meta(
     } else {
         meta.harness.as_str()
     };
-    session_state_row(
-        &meta.status_label(),
-        harness,
-        &meta.model,
-        &taken,
-        meta.is_subagent(),
-        meta.imported || meta.origin.eq_ignore_ascii_case("import"),
+    with_tag_chips(
+        session_state_row(
+            &meta.status_label(),
+            harness,
+            &meta.model,
+            &taken,
+            meta.is_subagent(),
+            meta.imported || meta.origin.eq_ignore_ascii_case("import"),
+            tea,
+            "",
+        ),
+        tags,
         tea,
-        "",
     )
 }
 
@@ -576,6 +656,9 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         ));
     }
     let scene = layers.into();
+    if hud.tag_open() {
+        return fade_palette(tags_modal(hud, scene, tea), hud, tea);
+    }
     if hud.help_visible() {
         return fade_palette(
             kit::help_modal(
@@ -589,6 +672,58 @@ pub fn layout(hud: &Hud) -> Element<'_, Message> {
         );
     }
     fade_palette(scene, hud, tea)
+}
+
+fn tags_modal<'a>(
+    hud: &'a Hud,
+    scene: Element<'a, Message>,
+    tea: icedtea::theme::Tokens,
+) -> Element<'a, Message> {
+    let mut chips = row![].spacing(6).align_y(Alignment::Center);
+    for name in hud.tag_working() {
+        chips = chips.push(tag_badge(
+            format!("{name} ×"),
+            tea,
+            Some(Message::TagRemove(name.clone())),
+        ));
+    }
+    let hints = hud.tag_hints();
+    let field = icedtea::widget::suggest_field(
+        "Add tag",
+        hud.tag_draft(),
+        Message::TagDraft,
+        hints,
+        |i| Message::TagPick(hints[i].clone()),
+        tea,
+        A11y::new("Add tag", Role::ComboBox),
+    );
+    let actions = row![
+        note_quiet_btn("Save", Message::TagSave, tea),
+        note_quiet_btn("Cancel", Message::TagCancel, tea),
+    ]
+    .spacing(tea.density.gap())
+    .align_y(Alignment::Center);
+    let card = container(
+        column![
+            icedtea::widget::meta("Tags", tea, A11y::new("Tags", Role::Header)),
+            chips,
+            field,
+            actions,
+        ]
+        .spacing(tea.density.gap()),
+    )
+    .padding(tea.density.inset() * 2.0)
+    .width(Length::Fixed(420.0))
+    .style(move |_| icedtea::style::shell(tea));
+    stack![
+        scene,
+        container(card)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center_x(Length::Fill)
+            .center_y(Length::Fill),
+    ]
+    .into()
 }
 
 fn fade_palette<'a>(
@@ -920,7 +1055,7 @@ fn browse_session_bar<'a>(
     .align_y(Alignment::Center)
     .width(Length::Fill);
     if let Some(o) = hud.overview() {
-        row = row.push(session_state_from_meta(&o.meta, tea));
+        row = row.push(session_state_from_meta(&o.meta, hud.session_tags(), tea));
     } else if !status.is_empty() {
         row = row.push(session_state_row(
             &status, "", "", "", false, false, tea, "",
@@ -1243,7 +1378,7 @@ fn overview_session(hud: &Hud) -> Element<'_, Message> {
         summary = "No summary text for this session.".into();
     }
     let ctx_frac = context_fraction(meta.context_window_usage_pct, meta.context_compact());
-    let status_row = session_state_from_meta(meta, tea);
+    let status_row = session_state_from_meta(meta, hud.session_tags(), tea);
     // Title lives on the browse bar. Status is badges only.
     let mut col = column![status_row].spacing(8);
     // Progress only where context matters (session detail), and only when known.
@@ -2711,13 +2846,14 @@ fn notes_tab(hud: &Hud) -> Element<'_, Message> {
     let list: Element<'_, Message> = if notes.is_empty() {
         kit::status_empty("No notes", "Add a note to keep what you found.", tea)
     } else {
-        let mut cards = column![];
+        let mut cards = column![].spacing(crate::live::LIST_CARD_GAP);
         for (i, n) in notes.iter().enumerate() {
-            let h = hud.note_heights().get(i).copied().unwrap_or(1.0).max(1.0);
+            let slot = hud.note_heights().get(i).copied().unwrap_or(1.0).max(1.0);
+            let card_h = (slot - crate::live::LIST_CARD_GAP).max(1.0);
             cards = cards.push(
                 container(note_list_card(hud, n))
                     .width(Length::Fill)
-                    .height(h)
+                    .height(card_h)
                     .clip(true),
             );
         }
@@ -4148,6 +4284,40 @@ mod tests {
         );
         assert!(prod.contains("chip_face"));
         assert!(prod.contains("fn session_state_row"));
+        assert!(prod.contains("fn session_tag_chips"));
+        assert!(prod.contains("fn with_tag_chips"));
+        assert!(prod.contains("fn tag_badge"));
+        assert!(prod.contains("TypeRole::LabelSmall"));
+        let tags = prod
+            .split("fn session_tag_chips")
+            .nth(1)
+            .expect("session_tag_chips")
+            .split("fn session_state_from_row")
+            .next()
+            .expect("tag chips body");
+        assert!(tags.contains("tag_badge("));
+        assert!(!tags.contains("Variant::Primary"));
+        let picker = prod
+            .split("fn tags_modal")
+            .nth(1)
+            .expect("tags_modal")
+            .split("fn fade_palette")
+            .next()
+            .expect("tags_modal body");
+        let chips = picker.split("text_input").next().expect("working chips");
+        assert!(
+            chips.contains("tag_badge("),
+            "working tags must match the list badge"
+        );
+        assert!(
+            !chips.contains("chip_btn("),
+            "working tags must not use the Save/Cancel chip"
+        );
+        assert!(
+            picker.contains("suggest_field"),
+            "Add tag must typeahead known names"
+        );
+        assert!(picker.contains("Message::TagPick"));
         assert!(prod.contains("muted_meta(meta, tea)"));
         assert!(prod.contains("fn inset_search"));
         assert!(
@@ -4722,6 +4892,14 @@ mod tests {
         assert!(notes.contains("cover_stack"));
         assert!(notes.contains("widget::scroll"));
         assert!(!notes.contains("virtual_column"));
+        assert!(
+            notes.contains("LIST_CARD_GAP"),
+            "gap sits between cards, not inside the clipped card"
+        );
+        assert!(
+            !notes.contains(".height(h)"),
+            "clip height must be the card, not the row slot"
+        );
         let page = prod
             .split("fn page_body")
             .nth(1)

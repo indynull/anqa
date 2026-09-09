@@ -53,7 +53,15 @@ from ..control.contract import (
     list_query_values,
 )
 from ..harness.registry import scheduler_state
-from ..models import JsonObject, SessionMeta, TraceEvent, as_json_object, json_as_str, json_count
+from ..models import (
+    JsonObject,
+    JsonValue,
+    SessionMeta,
+    TraceEvent,
+    as_json_object,
+    json_as_str,
+    json_count,
+)
 from ..paths import is_import_locator
 from ..stamp import Stamp
 
@@ -176,6 +184,7 @@ class CatalogQueryRow:
     has_compaction: bool = False
     has_doom: bool = False
     has_context: bool = False
+    tags: tuple[str, ...] = ()
     counts: dict[str, int] = field(default_factory=dict)
 
     @classmethod
@@ -224,6 +233,7 @@ class CatalogQueryRow:
             has_compaction=bool(row.get("hasCompaction")),
             has_doom=bool(row.get("hasDoom")),
             has_context=has_context,
+            tags=_tags_from_wire(row.get("tags")),
             counts={name: json_count(row.get(wire)) for name, wire in COUNT_FIELDS.items()},
         )
 
@@ -286,6 +296,7 @@ class CatalogQueryRow:
             has_compaction=bool(meta.has_compaction),
             has_doom=bool(meta.has_doom),
             has_context=bool(meta.has_context_usage),
+            tags=tuple(meta.tags),
             counts={name: int(by_wire.get(wire, 0)) for name, wire in COUNT_FIELDS.items()},
         )
 
@@ -384,6 +395,18 @@ class CatalogQueryRow:
             return False
         return self.has_count(name) > 0
 
+    def matches_tag(self, raw: str) -> bool:
+        """True when this row has every comma-separated tag in *raw*.
+
+        :param raw: ``tag:`` value (``review`` or ``review,ui``).
+        :return: Whether every named tag is present.
+        """
+        wanted = [part.strip() for part in (raw or "").split(",") if part.strip()]
+        if not wanted:
+            return False
+        have = {tag.casefold() for tag in self.tags}
+        return all(name.casefold() in have for name in wanted)
+
     def matches_in(self, needle: str) -> bool:
         """True when *needle* is a prefix or substring of the run directory.
 
@@ -420,6 +443,8 @@ class CatalogQueryRow:
             return term_text(expr).casefold() in self.model.casefold()
         if field == "task":
             return term_text(expr).casefold() in self.task_id.casefold()
+        if field == "tag":
+            return self.matches_tag(term_text(expr))
         if field == "after":
             return match_date(self.updated_at, term_text(expr), after=True)
         if field == "before":
@@ -569,6 +594,7 @@ def suggest_last_token(
     models: Sequence[str] = (),
     paths: Sequence[str] = (),
     tools: Sequence[str] = (),
+    tags: Sequence[str] = (),
     scope: str = "catalog",
 ) -> list[str]:
     """Last-token completions (field names, closed values, live model/path)."""
@@ -580,9 +606,30 @@ def suggest_last_token(
         return [f"{name}:" for name in names if name.startswith(token.casefold())]
     field, _, rest = token.partition(":")
     key = field.casefold()
+    if key == "tag" and scope == "catalog":
+        return _suggest_tag_token(rest, tags)
     prefix = rest.casefold()
-    values = values_for_field(key, models=models, paths=paths, tools=tools, scope=scope)
+    values = values_for_field(key, models=models, paths=paths, tools=tools, tags=tags, scope=scope)
     return [f"{key}:{value}" for value in values if value.casefold().startswith(prefix)]
+
+
+def _suggest_tag_token(rest: str, tags: Sequence[str]) -> list[str]:
+    head, sep, last = rest.rpartition(",")
+    prefix = last.casefold()
+    out: list[str] = []
+    seen: set[str] = set()
+    for tag in tags:
+        name = str(tag).strip()
+        if not name or name.casefold() in seen:
+            continue
+        seen.add(name.casefold())
+        if not name.casefold().startswith(prefix):
+            continue
+        if sep:
+            out.append(f"tag:{head},{name}")
+        else:
+            out.append(f"tag:{name}")
+    return out
 
 
 def apply_suggestion(query: str, suggestion: str) -> str:
@@ -707,6 +754,7 @@ def values_for_field(
     models: Sequence[str],
     paths: Sequence[str],
     tools: Sequence[str] = (),
+    tags: Sequence[str] = (),
     scope: str = "catalog",
 ) -> tuple[str, ...]:
     closed = list_query_values(scope, field)
@@ -722,7 +770,24 @@ def values_for_field(
         return tuple(dict.fromkeys(m for m in models if m.strip()))
     if field == "in":
         return tuple(dict.fromkeys(short_path(p) for p in paths if p.strip()))
+    if field == "tag":
+        return tuple(dict.fromkeys(name.strip() for name in tags if name.strip()))
     return ()
+
+
+def _tags_from_wire(raw: JsonValue) -> tuple[str, ...]:
+    if not isinstance(raw, list):
+        return ()
+    out: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        name = str(item).strip() if item is not None else ""
+        key = name.casefold()
+        if not name or key in seen:
+            continue
+        seen.add(key)
+        out.append(name)
+    return tuple(out)
 
 
 def short_path(path: str) -> str:

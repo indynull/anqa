@@ -448,8 +448,13 @@ fn highlight_re() -> &'static Regex {
     })
 }
 
-pub fn suggest_last_token(query: &str, models: &[String], paths: &[String]) -> Vec<String> {
-    suggest_scope_token(QueryScope::Catalog, query, models, paths, &[])
+pub fn suggest_last_token(
+    query: &str,
+    models: &[String],
+    paths: &[String],
+    tags: &[String],
+) -> Vec<String> {
+    suggest_scope_token_tags(QueryScope::Catalog, query, models, paths, &[], tags)
 }
 
 pub fn suggest_scope_token(
@@ -458,6 +463,17 @@ pub fn suggest_scope_token(
     models: &[String],
     paths: &[String],
     tools: &[String],
+) -> Vec<String> {
+    suggest_scope_token_tags(scope, query, models, paths, tools, &[])
+}
+
+fn suggest_scope_token_tags(
+    scope: QueryScope,
+    query: &str,
+    models: &[String],
+    paths: &[String],
+    tools: &[String],
+    tags: &[String],
 ) -> Vec<String> {
     let token = last_token(query);
     if token.is_empty() {
@@ -474,12 +490,37 @@ pub fn suggest_scope_token(
     }
     let (field, rest) = token.split_once(':').unwrap_or(("", ""));
     let key = field.to_ascii_lowercase();
+    if key == "tag" && scope == QueryScope::Catalog {
+        return suggest_tag_token(rest, tags);
+    }
     let prefix = rest.to_ascii_lowercase();
-    values_for_field_in(scope, &key, models, paths, tools)
+    values_for_field_in(scope, &key, models, paths, tools, tags)
         .into_iter()
         .filter(|v| v.to_ascii_lowercase().starts_with(&prefix))
         .map(|v| format!("{key}:{v}"))
         .collect()
+}
+
+fn suggest_tag_token(rest: &str, tags: &[String]) -> Vec<String> {
+    let (head, last) = rest.rsplit_once(',').map_or(("", rest), |(h, t)| (h, t));
+    let prefix = last.to_ascii_lowercase();
+    let mut out = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for tag in tags {
+        let name = tag.trim();
+        if name.is_empty() || !seen.insert(name.to_ascii_lowercase()) {
+            continue;
+        }
+        if !name.to_ascii_lowercase().starts_with(&prefix) {
+            continue;
+        }
+        if head.is_empty() && !rest.contains(',') {
+            out.push(format!("tag:{name}"));
+        } else {
+            out.push(format!("tag:{head},{name}"));
+        }
+    }
+    out
 }
 
 pub fn apply_suggestion(query: &str, suggestion: &str) -> String {
@@ -505,6 +546,7 @@ fn values_for_field_in(
     models: &[String],
     paths: &[String],
     tools: &[String],
+    tags: &[String],
 ) -> Vec<String> {
     let closed = token_values_in(scope, field);
     if !closed.is_empty() {
@@ -528,6 +570,7 @@ fn values_for_field_in(
             .into_iter()
             .map(|p| short_path(&p))
             .collect(),
+        "tag" => unique_nonempty(tags),
         _ => Vec::new(),
     }
 }
@@ -626,7 +669,7 @@ mod tests {
     #[test]
     fn suggest_last_token_lists_has_flags() {
         assert_eq!(
-            suggest_last_token("has:", &[], &[]),
+            suggest_last_token("has:", &[], &[], &[]),
             vec![
                 "has:workflow",
                 "has:note",
@@ -645,8 +688,8 @@ mod tests {
                 "has:context",
             ]
         );
-        assert!(suggest_last_token("", &[], &[]).is_empty());
-        assert!(suggest_last_token("   ", &[], &[]).is_empty());
+        assert!(suggest_last_token("", &[], &[], &[]).is_empty());
+        assert!(suggest_last_token("   ", &[], &[], &[]).is_empty());
     }
 
     #[test]

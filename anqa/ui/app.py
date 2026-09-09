@@ -125,6 +125,7 @@ class SessionQuerySuggester(Suggester):
             value,
             models=self._app.query_model_values(),
             paths=self._app.query_path_values(),
+            tags=self._app.query_tag_values(),
         )
         if not hits:
             return None
@@ -758,6 +759,9 @@ class AnqaApp(App):
             sid = json_as_str(params.get("sessionId")).strip()
             self.call_later(self._control_notes_changed_ui, sid)
             return
+        if method == "tags/changed":
+            self.call_later(self._control_tags_changed_ui)
+            return
 
     def _resolve_session_id_for_control(self, session_id: str) -> Path | None:
         """Map a session id from control notify to a local directory."""
@@ -781,6 +785,10 @@ class AnqaApp(App):
                     screen._live_refresh_from_fs(heartbeat=False)
             except Exception:
                 logger.debug("browser refresh on session/changed failed", exc_info=True)
+
+    def _control_tags_changed_ui(self) -> None:
+        """Reload the home list after ``tags/changed``."""
+        self._schedule_sessions_reload(quiet=True)
 
     def _control_notes_changed_ui(self, session_id: str) -> None:
         screen = self.screen
@@ -1355,6 +1363,15 @@ class AnqaApp(App):
             }
         )
 
+    def query_tag_values(self) -> list[str]:
+        """Tags on the loaded catalog (last-token ``tag:`` hints)."""
+        from ..tags import load_vocabulary, merge_vocabulary
+
+        return merge_vocabulary(
+            load_vocabulary(),
+            *[list(meta.tags) for meta, _ in self._meta_only],
+        )
+
     def query_path_values(self) -> list[str]:
         """Run directories on the loaded catalog (last-token ``in:`` hints)."""
         out: list[str] = []
@@ -1506,9 +1523,19 @@ class AnqaApp(App):
         origin = self._origin_for_dir(Path(meta.session_dir)) or (meta.origin or "").strip()
         if origin == SessionOrigin.IMPORT:
             harness = join_ui(harness, t("ui-origin-import"), sep=" · ")
+        title = (meta.label or meta.session_id)[:40]
+        from .styles import tag_pills
+
+        pills = tag_pills(meta.tags)
+        title_cell: str | Text = title
+        if pills.plain:
+            painted = Text(title)
+            painted.append(" ")
+            painted.append_text(pills)
+            title_cell = painted
         return (
             Text("*", style="bold green") if selected else Text(" "),
-            (meta.label or meta.session_id)[:40],
+            title_cell,
             harness,
             meta.model_display[:40],
             self._session_status_cell(meta),
@@ -1743,6 +1770,7 @@ class AnqaApp(App):
             self._session_search,
             models=self.query_model_values(),
             paths=self.query_path_values(),
+            tags=self.query_tag_values(),
         )
         hint.display = True
         hint.update("  ".join(hits[:8]) if hits else "")
@@ -1958,6 +1986,74 @@ class AnqaApp(App):
                         meta = m
                         break
         return meta
+
+    def _target_session_metas(self) -> list[SessionMeta]:
+        """Marked sessions, or the focused row."""
+        keys: list[str] = []
+        if self._selected:
+            keys = list(self._selected)
+        else:
+            cursor = self._session_row_key_at_cursor()
+            if cursor:
+                keys = [cursor]
+        by_key = {str(meta.session_dir): meta for meta, _ in self._meta_only}
+        return [by_key[key] for key in keys if key in by_key]
+
+    def _session_tag_ref(self, meta: SessionMeta) -> str:
+        harness = (meta.harness or "").strip()
+        sid = (meta.session_id or "").strip()
+        if harness and sid:
+            return f"{harness}:{sid}"
+        return str(meta.session_dir)
+
+    def action_tag_sessions(self) -> None:
+        """t — add or remove tags on the marked rows or the focused row."""
+        from ..tags import load_vocabulary, merge_vocabulary, shared_tags
+        from .widgets.tags_modal import TagsModal
+
+        metas = self._target_session_metas()
+        if not metas:
+            self.notify(t("ui-tags-none"), severity="warning")
+            return
+        current = shared_tags([list(meta.tags) for meta in metas])
+        vocab = merge_vocabulary(
+            load_vocabulary(),
+            *[list(meta.tags) for meta, _ in self._meta_only],
+        )
+
+        def _done(tags: list[str] | None) -> None:
+            if tags is None:
+                return
+            self.run_worker(self._write_session_tags(metas, tags), exclusive=False)
+
+        self.push_screen(TagsModal(current=current, vocabulary=vocab), _done)
+
+    async def _write_session_tags(self, metas: list[SessionMeta], tags: list[str]) -> None:
+        from ..tags import load_vocabulary, save_tags
+
+        refs = [self._session_tag_ref(meta) for meta in metas]
+        access = self.session_access()
+        try:
+            if access is not None and self.is_control_client():
+                await access.tags_set(refs, tags)
+            else:
+                from ..harness.registry import resolve_session_ref
+
+                vocab = load_vocabulary()
+                for raw in refs:
+                    found = resolve_session_ref(raw)
+                    if found is None:
+                        raise FileNotFoundError(raw)
+                    save_tags(found, tags, vocabulary=vocab)
+        except Exception:
+            logger.exception("tags/set failed")
+            self.notify(t("ui-tags-none"), severity="error")
+            return
+        stored = tuple(tags)
+        for meta in metas:
+            meta.tags = stored
+        self._populate_session_table()
+        self.notify(t("ui-tags-saved"))
 
     def action_import_session(self) -> None:
         """Ctrl+O — open a harness archive or anqa export."""

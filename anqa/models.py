@@ -648,6 +648,7 @@ class SessionMeta:
     job_count: int = 0
     schedule_count: int = 0
     task_count: int = 0
+    tags: tuple[str, ...] = ()
 
     @property
     def model_display(self) -> str:

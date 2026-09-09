@@ -1004,6 +1004,27 @@ ModalScreen {
     margin: 1 0;
 }
 
+#modal-container.tags-modal {
+    width: 60;
+}
+
+#tags-chips {
+    height: auto;
+    margin: 1 0;
+}
+
+#tags-chips Button.tag-chip {
+    margin: 0 1 1 0;
+    height: 1;
+    color: $primary;
+    background: $primary-background;
+    border: none;
+}
+
+#tags-actions {
+    margin-top: 1;
+}
+
 #notes-modal-body SelectionList.note-field-choices {
     height: auto;
     max-height: 10;

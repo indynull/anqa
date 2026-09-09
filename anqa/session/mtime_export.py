@@ -19,6 +19,7 @@ from ..harness.ref import SessionRef
 from ..models import JsonObject, ListStatus, as_json_object
 from ..notes import notes_source_mtime_ns
 from ..paths import cache_dir
+from ..tags import tags_source_mtime_ns
 from .sources import default_catalog_root, list_host_session_dirs
 from .subagents import drop_subagent_sessions
 
@@ -45,7 +46,9 @@ def host_source_stamp(session_dir: Path) -> tuple[str, int, int, int]:
         str(session_dir),
         _mtime_ns(session_dir / _STAMP_FILES[0]),
         _mtime_ns(session_dir / _STAMP_FILES[1]),
-        _mtime_ns(session_dir / _STAMP_FILES[2]) + notes_source_mtime_ns(session_dir),
+        _mtime_ns(session_dir / _STAMP_FILES[2])
+        + notes_source_mtime_ns(session_dir)
+        + tags_source_mtime_ns(session_dir),
     )
 
 
@@ -64,20 +67,23 @@ def ref_source_stamp(ref: SessionRef) -> tuple[str, int, int, int]:
             key,
             _mtime_ns(loc / _STAMP_FILES[0]),
             _mtime_ns(loc / _STAMP_FILES[1]),
-            _mtime_ns(loc / _STAMP_FILES[2]) + notes_source_mtime_ns(loc),
+            _mtime_ns(loc / _STAMP_FILES[2])
+            + notes_source_mtime_ns(loc)
+            + tags_source_mtime_ns(ref),
         )
+    overlay = tags_source_mtime_ns(ref)
     impl = adapter(ref.harness)
     if impl is not None:
         try:
             a, b, c, _d = impl.timeline_stamp(ref)
-            return (key, int(a), int(b), int(c))
+            return (key, int(a), int(b), int(c) + overlay)
         except (OSError, FileNotFoundError, TypeError, ValueError):
             pass
     try:
         mt = int(loc.stat().st_mtime_ns)
     except OSError:
         mt = 0
-    return (key, mt, 0, 0)
+    return (key, mt, 0, overlay)
 
 
 def default_catalog_snapshot(root: Path) -> Path:

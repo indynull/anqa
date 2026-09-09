@@ -209,6 +209,9 @@ def _collect_operator_notes(session_dir: Path | str | SessionRef, staging: Path)
     collect_notes_for_export(ref.overlay_dir(), dest)
     if ref.locator.is_dir() and not (dest / NOTES_FILENAME).is_file():
         collect_notes_for_export(ref.locator, dest)
+    from ..tags import collect_tags_for_export
+
+    collect_tags_for_export(ref, dest)
 
 
 def _gather_session_summary_data(session_dir: Path | str | SessionRef) -> SessionSummaryData:

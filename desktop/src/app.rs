@@ -251,6 +251,14 @@ pub enum Message {
     ToastDismiss(u64),
     /// Toggle the keyboard-shortcut cheatsheet (`?`).
     ToggleHelp,
+    OpenTags,
+    TagDraft(String),
+    TagPick(String),
+    TagRemove(String),
+    TagSave,
+    TagCancel,
+    TagsCatalog(Result<Value, String>),
+    TagsWritten(Result<Value, String>),
     /// Discard — close handlers and contribution-shaped tab chrome.
     Noop,
 }
@@ -386,6 +394,12 @@ pub struct Hud {
     palette_origin: Option<Point>,
     last_live: Instant,
     typing_notes: bool,
+    tag_sessions: Vec<String>,
+    tag_working: Vec<String>,
+    tag_vocabulary: Vec<String>,
+    tag_draft: String,
+    tag_hints: Vec<String>,
+    tag_open: bool,
     search_id: Id,
     tl_search_id: Id,
     theme_name: String,
@@ -589,6 +603,12 @@ impl Default for Hud {
             palette_origin: None,
             last_live: Instant::now(),
             typing_notes: false,
+            tag_sessions: Vec::new(),
+            tag_working: Vec::new(),
+            tag_vocabulary: Vec::new(),
+            tag_draft: String::new(),
+            tag_hints: Vec::new(),
+            tag_open: false,
             search_id: Id::new("search"),
             tl_search_id: Id::new("tl-search"),
             theme_name: theme::resolve_name(
@@ -2196,6 +2216,31 @@ impl Hud {
                 self.go_help(!self.help_open);
                 Task::none()
             }
+            Message::OpenTags => self.open_tags(),
+            Message::TagDraft(value) => {
+                self.tag_draft = value;
+                self.refresh_tag_hints();
+                Task::none()
+            }
+            Message::TagPick(name) => {
+                self.pick_tag(name);
+                Task::none()
+            }
+            Message::TagRemove(name) => {
+                self.tag_working.retain(|item| item != &name);
+                self.refresh_tag_hints();
+                Task::none()
+            }
+            Message::TagSave => self.save_tags(),
+            Message::TagCancel => {
+                self.close_tags();
+                Task::none()
+            }
+            Message::TagsWritten(result) => self.after_tags_written(result),
+            Message::TagsCatalog(result) => {
+                self.merge_tag_vocabulary(result);
+                Task::none()
+            }
             Message::CloseRequested(id) => self.on_close_requested(id),
             Message::Tray(action) => self.on_tray(action),
             Message::Summon(req) => self.on_summon(req),
@@ -2257,7 +2302,12 @@ impl Hud {
             .map(|r| r.run_dir.clone())
             .filter(|p| !p.is_empty())
             .collect();
-        suggest_last_token(&self.query, &models, &paths)
+        let tags: Vec<String> = self
+            .all_sessions
+            .iter()
+            .flat_map(|r| r.tags.iter().cloned())
+            .collect();
+        suggest_last_token(&self.query, &models, &paths, &tags)
     }
 
     pub fn timeline_query_hints(&self) -> Vec<String> {
@@ -2289,6 +2339,56 @@ impl Hud {
 
     pub fn help_open(&self) -> bool {
         self.help_open
+    }
+
+    pub fn tag_open(&self) -> bool {
+        self.tag_open
+    }
+
+    pub fn tag_working(&self) -> &[String] {
+        &self.tag_working
+    }
+
+    pub fn tag_draft(&self) -> &str {
+        &self.tag_draft
+    }
+
+    pub fn tag_vocabulary(&self) -> &[String] {
+        &self.tag_vocabulary
+    }
+
+    pub fn tag_suggestions(&self) -> Vec<String> {
+        crate::format::tag_suggestions(&self.tag_vocabulary, &self.tag_working, &self.tag_draft)
+    }
+
+    pub fn tag_hints(&self) -> &[String] {
+        &self.tag_hints
+    }
+
+    fn refresh_tag_hints(&mut self) {
+        self.tag_hints = crate::format::tag_suggestions(
+            &self.tag_vocabulary,
+            &self.tag_working,
+            &self.tag_draft,
+        );
+    }
+
+    /// Tags on the open session, else the focused Recent row.
+    pub fn session_tags(&self) -> &[String] {
+        let sid = self.overview_sid();
+        if !sid.is_empty() {
+            if let Some(row) = self.all_sessions.iter().find(|row| {
+                row.session_id == sid
+                    || row.path.ends_with(sid)
+                    || row.path.contains(&format!(":{sid}"))
+            }) {
+                return &row.tags;
+            }
+        }
+        self.sessions
+            .get(self.active)
+            .map(|row| row.tags.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn key_scope(&self) -> crate::help::KeyScope {
@@ -3225,6 +3325,149 @@ impl Hud {
                 })
                 .unwrap_or_default(),
         }
+    }
+
+    fn open_tags(&mut self) -> Task<Message> {
+        if self.tag_open {
+            return Task::none();
+        }
+        let row = self.sessions.get(self.active).cloned();
+        let Some(row) = row else {
+            self.toasts.push_warning("No session");
+            return Task::none();
+        };
+        let path = if !row.path.is_empty() {
+            row.path.clone()
+        } else {
+            row.session_id.clone()
+        };
+        self.tag_sessions = vec![path.clone()];
+        self.tag_working = row.tags.clone();
+        let mut vocab: Vec<String> = Vec::new();
+        for item in &self.all_sessions {
+            for tag in &item.tags {
+                if !vocab
+                    .iter()
+                    .any(|have: &String| have.eq_ignore_ascii_case(tag))
+                {
+                    vocab.push(tag.clone());
+                }
+            }
+        }
+        self.tag_vocabulary = vocab;
+        self.tag_draft.clear();
+        self.refresh_tag_hints();
+        self.tag_open = true;
+        let sid = path.clone();
+        Task::perform(rpc(move || control::tags_get(&sid)), Message::TagsCatalog)
+    }
+
+    fn add_tag_draft(&mut self) {
+        let raw = self.tag_draft.trim();
+        if raw.is_empty() {
+            return;
+        }
+        if let Some(parsed) = crate::format::parse_tag(raw) {
+            if !self
+                .tag_working
+                .iter()
+                .any(|have| have.eq_ignore_ascii_case(&parsed))
+            {
+                self.tag_working.push(parsed);
+            }
+            self.tag_draft.clear();
+            self.refresh_tag_hints();
+            return;
+        }
+        self.toasts.push_warning("Not a valid tag");
+    }
+
+    fn pick_tag(&mut self, name: String) {
+        let Some(parsed) = crate::format::parse_tag(&name) else {
+            return;
+        };
+        if !self
+            .tag_working
+            .iter()
+            .any(|have| have.eq_ignore_ascii_case(&parsed))
+        {
+            self.tag_working.push(parsed);
+        }
+        self.tag_draft.clear();
+        self.refresh_tag_hints();
+    }
+
+    fn merge_tag_vocabulary(&mut self, result: Result<Value, String>) {
+        let Ok(body) = result else {
+            return;
+        };
+        let Some(raw) = body.get("vocabulary").and_then(Value::as_array) else {
+            return;
+        };
+        for item in raw {
+            let Some(name) = item.as_str() else {
+                continue;
+            };
+            if name.trim().is_empty() {
+                continue;
+            }
+            if !self
+                .tag_vocabulary
+                .iter()
+                .any(|have| have.eq_ignore_ascii_case(name))
+            {
+                self.tag_vocabulary.push(name.to_string());
+            }
+        }
+        self.refresh_tag_hints();
+    }
+
+    fn close_tags(&mut self) {
+        self.tag_open = false;
+        self.tag_draft.clear();
+        self.tag_hints.clear();
+        self.tag_sessions.clear();
+        self.tag_working.clear();
+        self.tag_vocabulary.clear();
+    }
+
+    fn save_tags(&mut self) -> Task<Message> {
+        if !self.tag_draft.trim().is_empty() {
+            self.add_tag_draft();
+            if !self.tag_draft.is_empty() {
+                return Task::none();
+            }
+        }
+        let sessions = self.tag_sessions.clone();
+        let tags = self.tag_working.clone();
+        Task::perform(
+            rpc(move || control::tags_set(&sessions, &tags)),
+            Message::TagsWritten,
+        )
+    }
+
+    fn after_tags_written(&mut self, result: Result<Value, String>) -> Task<Message> {
+        match result {
+            Ok(_) => {
+                let tags = self.tag_working.clone();
+                if let Some(row) = self.sessions.get_mut(self.active) {
+                    row.tags = tags.clone();
+                }
+                if let Some(row) = self.all_sessions.iter_mut().find(|item| {
+                    self.tag_sessions
+                        .iter()
+                        .any(|sid| sid == &item.path || sid == &item.session_id)
+                }) {
+                    row.tags = tags;
+                }
+                self.close_tags();
+                self.toasts.push_success("Tags saved");
+            }
+            Err(err) => {
+                self.toasts.push_danger(err);
+            }
+        }
+        Task::none()
     }
 
     pub(crate) fn session_path(&self) -> String {
@@ -6341,6 +6584,10 @@ impl Hud {
     }
 
     fn on_escape(&mut self) -> Task<Message> {
+        if self.tag_open {
+            self.close_tags();
+            return Task::none();
+        }
         if self.help_open {
             self.go_help(false);
             return Task::none();
@@ -6442,6 +6689,18 @@ impl Hud {
     fn on_key(&mut self, key: Key, modifiers: KeyMods) -> Task<Message> {
         self.key_mods = modifiers;
         self.expire_leader();
+        if self.tag_open {
+            if matches!(key, Key::Named(Named::Enter)) {
+                self.add_tag_draft();
+                return Task::none();
+            }
+            if matches!(key, Key::Named(Named::Tab)) && !modifiers.control() && !modifiers.alt() {
+                if let Some(name) = self.tag_hints.first().cloned() {
+                    self.pick_tag(name);
+                    return Task::none();
+                }
+            }
+        }
         if matches!(key, Key::Named(Named::Escape)) {
             if self.leader_armed {
                 self.disarm_leader();
@@ -6476,6 +6735,9 @@ impl Hud {
         }
         if !self.browse_mode() && self.key_is("session.import", "ctrl+o", &key, modifiers) {
             return Self::pick_import();
+        }
+        if self.key_is("session.tag", "t", &key, modifiers) {
+            return self.open_tags();
         }
         if self.key_is("search.focus", "slash", &key, modifiers) {
             return self.focus_context_search();
@@ -7548,6 +7810,34 @@ mod tests {
         assert!(hud.browse_mode());
         hud.query = "switch".into();
         assert!(!hud.browse_mode(), "type again to switch sessions");
+    }
+
+    #[test]
+    fn tag_draft_lists_matching_names() {
+        let mut hud = Hud {
+            tag_open: true,
+            tag_working: vec!["anqa".into()],
+            tag_vocabulary: vec!["anqa".into(), "ui".into()],
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::TagDraft("u".into()));
+        assert_eq!(hud.tag_hints(), &["ui".to_string()]);
+    }
+
+    #[test]
+    fn tag_pick_adds_chip_and_clears_draft() {
+        let mut hud = Hud {
+            tag_open: true,
+            tag_working: vec!["anqa".into()],
+            tag_vocabulary: vec!["anqa".into(), "ui".into()],
+            tag_draft: "u".into(),
+            ..Hud::default()
+        };
+        assert_eq!(hud.tag_suggestions(), vec!["ui".to_string()]);
+        let _ = hud.update(Message::TagPick("ui".into()));
+        assert_eq!(hud.tag_working(), &["anqa".to_string(), "ui".to_string()]);
+        assert!(hud.tag_draft().is_empty());
+        assert!(hud.tag_suggestions().is_empty());
     }
 
     #[test]

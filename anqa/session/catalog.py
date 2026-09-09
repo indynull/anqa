@@ -46,6 +46,21 @@ from .subagents import (
 logger = logging.getLogger(__name__)
 
 
+def _row_tags(ref: SessionRef) -> tuple[str, ...]:
+    from ..tags import load_tags
+
+    return tuple(load_tags(ref))
+
+
+def _tags_from_row(row: JsonObject) -> tuple[str, ...]:
+    from ..tags import parse_tags
+
+    raw = row.get("tags")
+    if not isinstance(raw, list):
+        return ()
+    return tuple(parse_tags(str(item) for item in raw))
+
+
 def locator_index_from_rows(rows: list[JsonObject]) -> dict[str, str]:
     """Map session id, ``harness:id``, and locator strings to the locator."""
     index: dict[str, str] = {}
@@ -203,6 +218,7 @@ def catalog_row_for_ref(ref: SessionRef, *, label: str | None = None) -> JsonObj
         "createdAt": created,
         "updatedAt": updated,
         "sortEpoch": sort_epoch,
+        "tags": list(_row_tags(ref)),
         **presence,
     }
 
@@ -291,8 +307,6 @@ _DEAD_LIST_KEYS = ("originTag", "isHost", "origin", "locator")
 def public_catalog_row(row: JsonObject) -> JsonObject:
     """List row as clients should see it: harness label plus import origin."""
     out = dict(row)
-    for key in _DEAD_LIST_KEYS:
-        out.pop(key, None)
     hid = str(out.get("harness") or "").strip()
     if not hid:
         parsed = parse_session_ref_string(str(out.get("path") or ""))
@@ -300,6 +314,12 @@ def public_catalog_row(row: JsonObject) -> JsonObject:
         out["harness"] = hid
     if not str(out.get("harnessLabel") or "").strip():
         out["harnessLabel"] = harness_product(hid)
+    sid = str(out.get("sessionId") or "").strip()
+    if hid and sid:
+        loc = str(row.get("locator") or row.get("path") or sid).strip()
+        out["tags"] = list(_row_tags(SessionRef(harness=hid, session_id=sid, locator=Path(loc))))
+    for key in _DEAD_LIST_KEYS:
+        out.pop(key, None)
     return out
 
 
@@ -356,6 +376,7 @@ _LIST_ROW_SIG_KEYS: tuple[str, ...] = (
     "hasContext",
     "createdAt",
     "updatedAt",
+    "tags",
 )
 
 
@@ -1067,6 +1088,7 @@ def session_meta_from_catalog_row(row: JsonObject) -> SessionMeta | None:
     meta.turn_count = json_count(row.get("turnCount"))
     meta.error_count = json_count(row.get("errorCount"))
     apply_catalog_presence_row(meta, row)
+    meta.tags = _tags_from_row(row)
     git_repo = str(row.get("gitRepo") or "").strip()
     if git_repo:
         meta.git_repo = git_repo

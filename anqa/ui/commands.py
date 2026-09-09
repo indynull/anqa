@@ -69,6 +69,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_delete_session", U.cmd_delete_sessions()),
                 ("action_export_bundle", U.cmd_export_bundle()),
                 ("action_export_choose_profile", U.cmd_export_choose_profile()),
+                ("action_tag_session", U.cmd_tag_sessions()),
                 ("action_operator_note", U.cmd_operator_note()),
                 ("action_edit_operator_note", U.cmd_edit_operator_note()),
                 ("action_toggle_event_reader", U.cmd_event_reader()),
@@ -85,6 +86,7 @@ def yield_app_commands(app: App, screen: Screen) -> Iterator[PaletteItem]:
                 ("action_import_session", U.cmd_import_session()),
                 ("action_export_session_bundle", U.cmd_export_bundle()),
                 ("action_export_session_choose_profile", U.cmd_export_choose_profile()),
+                ("action_tag_sessions", U.cmd_tag_sessions()),
             ):
                 if hasattr(app, method):
                     yield _app(app, method, th)

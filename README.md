@@ -188,6 +188,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | s / Space | sessions | Select (also Space) |
 | S | sessions | Select all rows in the current filter |
 | E | sessions | Export a session bundle |
+| t | sessions / HUD | Tag the selected sessions (HUD: the focused session) |
 | Ctrl+O | sessions / HUD | Import a harness archive or anqa export |
 | x | sessions | Delete (press twice) |
 | [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
@@ -201,6 +202,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | y | browser / HUD | Copy the selection or the focused / primary pane body |
 | Ctrl+Shift+C | browser | Same as y |
 | E | browser | Export a session bundle |
+| t | browser / HUD | Tag this session |
 | x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session (every harness store) |
 | s | pickers | Select |
 | Ctrl+S | pickers | Apply the selection |
@@ -249,6 +251,7 @@ it like any other session.
 | `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
 | `in:~/path` | Directory the session was run in |
 | `model:` `task:` | Substring |
+| `tag:` | Operator tag. `tag:review,ui` is both (comma is AND) |
 | `after:` `before:` | `updatedAt` (ISO, `yesterday`, `2d`, `2 days ago`) |
 | `OR` `NOT` `-` `( )` | Compose |
 

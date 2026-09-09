@@ -21,6 +21,7 @@ Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must
 | harness: | grok, opencode, pi, claude, gemini, antigravity, copilot, codex, cursor |
 | model: | Model id substring |
 | task: | Task id substring |
+| tag: | Operator tag. `tag:review,ui` is both (comma is AND) |
 | after: | updatedAt on or after this time (ISO, yesterday, 2d, 2 days ago) |
 | before: | updatedAt on or before this time (ISO, yesterday, 2d, 2 days ago) |
 | workflows: notes: goals: plans: subagents: tasks: jobs: schedules: errors: failures: turns: tools: events: duration: diff: compaction: doom: | >=  <=  >  <  = |

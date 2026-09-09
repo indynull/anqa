@@ -47,6 +47,12 @@ const ACTIONS: &[CatalogRow] = &[
         remappable: true,
     },
     CatalogRow {
+        id: "session.tag",
+        scope: "home",
+        default: "t",
+        remappable: true,
+    },
+    CatalogRow {
         id: "list.down",
         scope: "home",
         default: "j,down",

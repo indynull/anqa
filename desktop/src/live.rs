@@ -162,12 +162,12 @@ pub fn session_card_height(title: &str, meta: &str, has_ctx: bool) -> f32 {
 /// Notes card: inset, turn heading, optional when, fields, compact actions.
 pub fn note_card_height(values: &[&str], has_when: bool) -> f32 {
     const INSET: f32 = 12.0;
-    const HEAD: f32 = 24.0;
+    const HEAD: f32 = 28.0;
     const GAP: f32 = 8.0;
     const LABEL: f32 = 16.0;
     const LABEL_GAP: f32 = 4.0;
     const LINE: f32 = 20.0;
-    const ACTIONS: f32 = 28.0;
+    const ACTIONS: f32 = 40.0;
     let mut h = INSET * 2.0 + HEAD + GAP + ACTIONS;
     if has_when {
         h += GAP + LABEL;
@@ -1556,6 +1556,11 @@ mod tests {
     #[test]
     fn note_card_height_fits_short_fields() {
         let short = note_card_height(&["test", "test"], false);
+        let card = short - LIST_CARD_GAP;
+        assert!(
+            card >= 12.0 * 2.0 + 28.0 + 8.0 + 40.0 + 2.0 * (8.0 + 16.0 + 4.0 + 8.0 + 20.0),
+            "two short fields plus Edit/Delete must fit in the card: {card}"
+        );
         let with_when = note_card_height(&["test", "test"], true);
         assert!(short < 240.0, "{short}");
         assert!(short > 100.0, "{short}");

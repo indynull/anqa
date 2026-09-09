@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from ..harness import views as harness_views
 from ..harness.ref import SessionRef
 from ..harness.registry import resolve_session_ref
-from ..models import JsonObject, JsonValue
+from ..models import JsonObject, JsonValue, as_json_object
 from ..notes import (
     NoteEntry,
     NotesSnapshot,
@@ -345,6 +345,38 @@ class LocalSessionAccess:
         snap = delete_note(path, note_id, expected_revision=expected_revision)
         return notes_snapshot_mapping(snap)
 
+    def tags_get(self, session: str) -> JsonObject:
+        """Tags on *session* plus the overlay vocabulary."""
+        from ..tags import load_tags, load_vocabulary
+
+        ref = self.require_ref(session)
+        return as_json_object(
+            {
+                "session": ref.ref_string(),
+                "tags": load_tags(ref),
+                "vocabulary": load_vocabulary(),
+            }
+        )
+
+    def tags_set(self, sessions: list[str], tags: list[str]) -> JsonObject:
+        """Replace tags on each session in *sessions*."""
+        from ..tags import load_vocabulary, save_tags
+
+        vocab = load_vocabulary()
+        ids: list[str] = []
+        stored: list[str] = []
+        for raw in sessions:
+            ref = self.require_ref(raw)
+            stored = save_tags(ref, tags, vocabulary=vocab)
+            ids.append(ref.ref_string())
+        return as_json_object(
+            {
+                "sessions": ids,
+                "tags": stored,
+                "vocabulary": load_vocabulary(),
+            }
+        )
+
 
 class RemoteSessionAccess:
     """Async façade over :class:`~anqa.control.client.ControlClient`."""
@@ -431,6 +463,12 @@ class RemoteSessionAccess:
         return await self._client.notes_delete(
             session, note_id, expected_revision=expected_revision
         )
+
+    async def tags_get(self, session: str) -> JsonObject:
+        return await self._client.tags_get(session)
+
+    async def tags_set(self, sessions: list[str], tags: list[str]) -> JsonObject:
+        return await self._client.tags_set(sessions, tags)
 
 
 __all__ = [

@@ -79,6 +79,28 @@ async def test_filter_clears_terminal_device_reply(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_session_query_hints_complete_tag_token(tmp_path: Path) -> None:
+    """The hint row under Filter completes ``tag:`` from catalog tags."""
+    from anqa.tags import save_tags
+    from textual.widgets import Static
+
+    from .pilot_helpers import static_plain
+
+    traces = _minimal_traces(tmp_path / "w")
+    save_tags(traces / "pilot-sess-1", ["review"])
+    app = AnqaApp(traces_path=traces, control_socket=None)
+    async with app.run_test(size=(120, 40)) as pilot:
+        await wait_until(pilot, lambda: bool(app._meta_only), description="sessions loaded")
+        meta, label = app._meta_only[0]
+        app._meta_only = [(meta, label)]
+        meta.tags = ("review",)
+        app._session_search = "tag:"
+        app._refresh_query_hints()
+        hint = app.query_one("#session-query-hints", Static)
+        assert "tag:review" in static_plain(hint)
+
+
+@pytest.mark.asyncio
 async def test_app_mounts_activity_bar(tmp_path: Path) -> None:
     work = tmp_path / "w"
     traces = _minimal_traces(work)

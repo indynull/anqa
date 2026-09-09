@@ -110,6 +110,8 @@ pub struct SessionListItem {
     pub updated_at: String,
     #[serde(default)]
     pub sort_epoch: f64,
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// ``session/list`` result body.

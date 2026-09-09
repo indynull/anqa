@@ -169,6 +169,12 @@
       "compare": false
     },
     {
+      "name": "tag",
+      "role": "Operator tag (comma is AND).",
+      "values": [],
+      "compare": false
+    },
+    {
       "name": "workflows",
       "role": "Count of workflows.",
       "values": [],

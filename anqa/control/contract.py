@@ -90,6 +90,7 @@ CATALOG_QUERY_TOKENS: tuple[CatalogQueryToken, ...] = (
     ),
     CatalogQueryToken("model", "Model id substring."),
     CatalogQueryToken("task", "Task id substring."),
+    CatalogQueryToken("tag", "Operator tag (comma is AND)."),
     *(
         CatalogQueryToken(count, f"Count of {count}.", compare=True)
         for _flag, count, _wire in CATALOG_QUERY_COUNTS
@@ -374,6 +375,7 @@ def _session_list_query_md() -> str:
 NOTIFY_SESSION_SELECTED = "session/selected"
 NOTIFY_SESSION_CHANGED = "session/changed"
 NOTIFY_NOTES_CHANGED = "notes/changed"
+NOTIFY_TAGS_CHANGED = "tags/changed"
 
 
 @dataclass(frozen=True)
@@ -633,6 +635,34 @@ METHODS: tuple[MethodSpec, ...] = (
             _EXPECTED_REV,
         ),
     ),
+    MethodSpec(
+        name="tags/get",
+        role="Tags on one session plus the catalog vocabulary",
+        params=(_SESSION,),
+        result=(
+            FieldSpec("session", "Session ref (`harness:id`).", required=True),
+            FieldSpec("tags", "Tags on this session.", json_type="array"),
+            FieldSpec("vocabulary", "Known tags.", json_type="array"),
+        ),
+    ),
+    MethodSpec(
+        name="tags/set",
+        role="Replace the tag set on one or more sessions",
+        params=(
+            FieldSpec(
+                "sessions",
+                "Session refs or paths.",
+                required=True,
+                json_type="array",
+            ),
+            FieldSpec("tags", "Replacement set.", required=True, json_type="array"),
+        ),
+        result=(
+            FieldSpec("sessions", "Updated session refs.", json_type="array"),
+            FieldSpec("tags", "Stored set.", json_type="array"),
+            FieldSpec("vocabulary", "Known tags after the write.", json_type="array"),
+        ),
+    ),
 )
 
 
@@ -658,6 +688,11 @@ NOTIFICATIONS: tuple[NotificationSpec, ...] = (
         name=NOTIFY_NOTES_CHANGED,
         when="Notes written or deleted",
         params=(_SESSION_ID, _REVISION),
+    ),
+    NotificationSpec(
+        name=NOTIFY_TAGS_CHANGED,
+        when="Tags written on one or more sessions",
+        params=(FieldSpec("sessionIds", "Updated session refs.", json_type="array"),),
     ),
 )
 
@@ -976,6 +1011,7 @@ __all__ = (
     "NOTIFY_NOTES_CHANGED",
     "NOTIFY_SESSION_CHANGED",
     "NOTIFY_SESSION_SELECTED",
+    "NOTIFY_TAGS_CHANGED",
     "PROTOCOL_VERSION",
     "SCHEMA_ID",
     "CATALOG_QUERY_ASSET",

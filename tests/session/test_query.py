@@ -784,3 +784,27 @@ def test_event_and_turn_use_same_query_language() -> None:
         subagent_count=0,
         query="has:subagent",
     )
+
+
+def test_tag_token_matches_one_or_many() -> None:
+    row = CatalogQueryRow(tags=("review", "ui"))
+    assert row_matches_query(row, "tag:review")
+    assert row_matches_query(row, "tag:REVIEW")
+    assert row_matches_query(row, "tag:review,ui")
+    assert row_matches_query(row, "tag:review tag:ui")
+    assert row_matches_query(row, "tag:review OR tag:bug")
+    assert not row_matches_query(row, "tag:bug")
+    assert not row_matches_query(row, "tag:review,bug")
+    assert not row_matches_query(CatalogQueryRow(), "tag:review")
+
+
+def test_suggest_tag_completes_known_and_comma_list() -> None:
+    known = ["review", "ui", "bug"]
+    assert suggest_last_token("tag:", tags=known) == [
+        "tag:review",
+        "tag:ui",
+        "tag:bug",
+    ]
+    assert suggest_last_token("tag:re", tags=known) == ["tag:review"]
+    assert suggest_last_token("tag:review,u", tags=known) == ["tag:review,ui"]
+    assert "tag:" in suggest_last_token("t")

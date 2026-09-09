@@ -25,6 +25,83 @@ pub fn capped_display(s: &str, max_chars: usize) -> String {
     out
 }
 
+/// How many tag chips a list or browse bar paints before a leftover count.
+pub const TAG_CHIP_MAX: usize = 3;
+
+/// First [`TAG_CHIP_MAX`] tags plus how many remain.
+pub fn visible_tags(tags: &[String]) -> (Vec<String>, usize) {
+    let clean: Vec<String> = tags
+        .iter()
+        .map(|tag| tag.trim().to_string())
+        .filter(|tag| !tag.is_empty())
+        .collect();
+    if clean.len() <= TAG_CHIP_MAX {
+        return (clean, 0);
+    }
+    let extra = clean.len() - TAG_CHIP_MAX;
+    (clean.into_iter().take(TAG_CHIP_MAX).collect(), extra)
+}
+
+/// Unused vocabulary matching a non-empty *draft*, first eight names.
+pub fn tag_suggestions(vocabulary: &[String], working: &[String], draft: &str) -> Vec<String> {
+    let prefix = draft.trim().to_ascii_lowercase();
+    if prefix.is_empty() {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    for name in vocabulary {
+        let name = name.trim();
+        if name.is_empty() {
+            continue;
+        }
+        if working.iter().any(|have| have.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        if !prefix.is_empty() && !name.to_ascii_lowercase().starts_with(&prefix) {
+            continue;
+        }
+        if out.iter().any(|have| have.eq_ignore_ascii_case(name)) {
+            continue;
+        }
+        out.push(name.to_string());
+        if out.len() == 8 {
+            break;
+        }
+    }
+    out
+}
+
+/// One tag token: letters, digits, hyphen.
+pub fn parse_tag(raw: &str) -> Option<String> {
+    let token = raw.trim();
+    if token.is_empty() {
+        return None;
+    }
+    let mut chars = token.chars();
+    let first = chars.next()?;
+    if !first.is_ascii_alphanumeric() {
+        return None;
+    }
+    let mut prev_hyphen = false;
+    for ch in chars {
+        if ch == '-' {
+            if prev_hyphen {
+                return None;
+            }
+            prev_hyphen = true;
+            continue;
+        }
+        if !ch.is_ascii_alphanumeric() {
+            return None;
+        }
+        prev_hyphen = false;
+    }
+    if prev_hyphen {
+        return None;
+    }
+    Some(token.to_string())
+}
+
 /// Compact JSON (or the string itself), then apply [`capped_display`].
 pub fn capped_json(value: &Value, max_chars: usize) -> String {
     let s = match value {
@@ -2744,6 +2821,28 @@ pub fn tool_fields_from_raw(tool_name: &str, raw: &Value, max_chars: usize) -> V
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tag_suggestions_skips_current_and_matches_prefix() {
+        let vocab = vec!["anqa".into(), "ui".into(), "review".into()];
+        let have = vec!["anqa".into()];
+        assert_eq!(tag_suggestions(&vocab, &have, "u"), vec!["ui".to_string()]);
+        assert!(tag_suggestions(&vocab, &have, "").is_empty());
+        assert!(tag_suggestions(&vocab, &have, "z").is_empty());
+    }
+
+    #[test]
+    fn visible_tags_caps_and_counts_overflow() {
+        assert_eq!(visible_tags(&[]), (Vec::new(), 0));
+        assert_eq!(
+            visible_tags(&["review".into(), "ui".into()]),
+            (vec!["review".into(), "ui".into()], 0)
+        );
+        assert_eq!(
+            visible_tags(&["review".into(), "ui".into(), "bug".into(), "docs".into(),]),
+            (vec!["review".into(), "ui".into(), "bug".into()], 1)
+        );
+    }
 
     #[test]
     fn extract_chars_matches_open_event_ceiling() {

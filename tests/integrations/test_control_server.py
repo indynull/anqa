@@ -589,6 +589,50 @@ async def test_notes_upsert_refreshes_catalog_and_overview(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_tags_set_keeps_new_tags_on_session_list(tmp_path: Path) -> None:
+    """tags/set must patch the warm catalog so the list keeps the new tags."""
+    from anqa.control import daemon as daemon_mod
+    from anqa.control.client import ControlClient
+    from anqa.session.catalog import SessionCatalogCache
+
+    traces = tmp_path / "work" / "runs" / "traces"
+    traces.mkdir(parents=True)
+    session_dir = traces / "tagged-sess"
+    _write_session(session_dir)
+    sock = _short_sock("tags-cat.sock")
+    server = daemon_mod.build_domain_control_server(
+        socket_path=sock,
+        traces_path=traces,
+        include_host=False,
+    )
+    cache = getattr(server, "_catalog_cache", None)
+    assert isinstance(cache, SessionCatalogCache)
+    await server.start()
+    try:
+        cache.get(force=True)
+        client = ControlClient(sock, client_name="tags-cat", timeout=20)
+        await client.initialize()
+        before = await client.session_list(query=session_dir.name)
+        assert before["matched"] == 1
+        assert before["sessions"][0].get("tags") in ([], None)
+        written = await client.tags_set([session_dir.name], ["anqa", "ui"])
+        assert written["tags"] == ["anqa", "ui"]
+        cache.get()
+        listed = await client.session_list(query=session_dir.name)
+        assert listed["matched"] == 1
+        assert listed["sessions"][0]["tags"] == ["anqa", "ui"]
+        removed = await client.tags_set([session_dir.name], ["anqa"])
+        assert removed["tags"] == ["anqa"]
+        cache.get()
+        after = await client.session_list(query=session_dir.name)
+        assert after["matched"] == 1
+        assert after["sessions"][0]["tags"] == ["anqa"]
+        await client.close()
+    finally:
+        await server.close()
+
+
+@pytest.mark.asyncio
 async def test_control_server_accepts_content_type_first_framing(tmp_path: Path) -> None:
     control = import_module("anqa.control.server")
     server = control.ControlServer(socket_path=_short_sock("ctype.sock"))

@@ -186,6 +186,12 @@
             "compare": false
           },
           {
+            "name": "tag",
+            "role": "Operator tag (comma is AND).",
+            "values": [],
+            "compare": false
+          },
+          {
             "name": "workflows",
             "role": "Count of workflows.",
             "values": [],
@@ -427,7 +433,9 @@
         "session/render",
         "notes/list",
         "notes/upsert",
-        "notes/delete"
+        "notes/delete",
+        "tags/get",
+        "tags/set"
       ],
       "properties": {
         "initialize": {
@@ -961,6 +969,100 @@
           "required": [
             "params"
           ]
+        },
+        "tags/get": {
+          "description": "Tags on one session plus the catalog vocabulary",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "tags/get params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session id or path.",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            },
+            "result": {
+              "title": "tags/get result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "session": {
+                  "description": "Session ref (`harness:id`).",
+                  "type": "string"
+                },
+                "tags": {
+                  "description": "Tags on this session.",
+                  "type": "array"
+                },
+                "vocabulary": {
+                  "description": "Known tags.",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "session"
+              ]
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "tags/set": {
+          "description": "Replace the tag set on one or more sessions",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "tags/set params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessions": {
+                  "description": "Session refs or paths.",
+                  "type": "array"
+                },
+                "tags": {
+                  "description": "Replacement set.",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "sessions",
+                "tags"
+              ]
+            },
+            "result": {
+              "title": "tags/set result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessions": {
+                  "description": "Updated session refs.",
+                  "type": "array"
+                },
+                "tags": {
+                  "description": "Stored set.",
+                  "type": "array"
+                },
+                "vocabulary": {
+                  "description": "Known tags after the write.",
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
         }
       }
     },
@@ -970,7 +1072,8 @@
       "required": [
         "session/selected",
         "session/changed",
-        "notes/changed"
+        "notes/changed",
+        "tags/changed"
       ],
       "properties": {
         "session/selected": {
@@ -1040,6 +1143,27 @@
                 "revision": {
                   "description": "Notes document revision.",
                   "type": "string"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "tags/changed": {
+          "description": "Tags written on one or more sessions",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "tags/changed params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessionIds": {
+                  "description": "Updated session refs.",
+                  "type": "array"
                 }
               }
             }

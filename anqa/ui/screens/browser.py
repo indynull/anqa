@@ -3730,6 +3730,43 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             with suppress(Exception):
                 populate()
 
+    def action_tag_session(self) -> None:
+        """t — add or remove tags on this session."""
+        from ...tags import load_tags, load_vocabulary, merge_vocabulary
+        from ..widgets.tags_modal import TagsModal
+
+        ref = self._session_control_ref()
+        current = list(self.meta.tags) if self.meta is not None else load_tags(ref)
+        vocab = merge_vocabulary(load_vocabulary(), current)
+
+        def _done(tags: list[str] | None) -> None:
+            if tags is None:
+                return
+            self.run_worker(self._write_session_tags(ref, tags), exclusive=False)
+
+        self.app.push_screen(TagsModal(current=current, vocabulary=vocab), _done)
+
+    async def _write_session_tags(self, ref: str, tags: list[str]) -> None:
+        from ...harness.registry import resolve_session_ref
+        from ...tags import load_vocabulary, save_tags
+        from ..i18n import t
+
+        try:
+            if self._uses_control_data():
+                await self._control_access().tags_set([ref], tags)
+            else:
+                found = resolve_session_ref(ref)
+                if found is None:
+                    raise FileNotFoundError(ref)
+                save_tags(found, tags, vocabulary=load_vocabulary())
+        except Exception:
+            logger.exception("tags/set failed")
+            self.notify(t("ui-tags-none"), severity="error")
+            return
+        if self.meta is not None:
+            self.meta.tags = tuple(tags)
+        self.notify(t("ui-tags-saved"))
+
     def action_export_bundle(self) -> None:
         """Export this session: configured profile, or ask if none is set."""
         from ..export_session import start_export_smart

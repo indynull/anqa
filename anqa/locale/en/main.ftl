@@ -85,6 +85,8 @@ bind-save-cfg = Save recipe
 
 bind-search = Search
 
+bind-tag = Tag
+
 bind-select = Select
 
 bind-select-all = Select all
@@ -203,6 +205,10 @@ cmd-save-session-config-help = Persist recipe without deleting session
 cmd-search-sessions = Search sessions
 
 cmd-search-sessions-help = Filter sessions as you type
+
+cmd-tag-sessions = Tag sessions
+
+cmd-tag-sessions-help = Add or remove tags on the selected sessions (t)
 
 cmd-select-all-configs = Select all / none
 
@@ -971,6 +977,16 @@ ui-copied-selection = Copied selection to clipboard
 ui-copied-detail = Copied detail to clipboard
 
 ui-copied-content = Copied to clipboard
+
+tags-modal-title = Tags
+
+tags-input-placeholder = Add tag
+
+ui-tags-saved = Tags saved
+
+ui-tags-none = No session selected
+
+ui-invalid-tag = Not a valid tag
 
 ui-nothing-to-copy = Nothing to copy
 

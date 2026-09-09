@@ -33,6 +33,7 @@ from .contract import (
     NOTIFY_NOTES_CHANGED,
     NOTIFY_SESSION_CHANGED,
     NOTIFY_SESSION_SELECTED,
+    NOTIFY_TAGS_CHANGED,
     PROTOCOL_VERSION,
     capability_names,
 )
@@ -957,6 +958,64 @@ class ControlServer:
             await self._notes_changed(session)
         self._after_notes_write(session, result, after_send)
         return result
+
+    @_rpc("tags/get")
+    async def _rpc_tags_get(
+        self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        ref = self._session_ref(params)
+        return await self._access_call(ref, self._access.tags_get, ref)
+
+    @_rpc("tags/set")
+    async def _rpc_tags_set(
+        self, params: JsonObject, after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        raw = params.get("sessions")
+        if not isinstance(raw, list) or not raw:
+            raise ControlError(-32602, "sessions is required")
+        tags_raw = params.get("tags")
+        if not isinstance(tags_raw, list):
+            raise ControlError(-32602, "tags is required")
+        sessions = [json_as_str(item).strip() for item in raw]
+        sessions = [item for item in sessions if item]
+        if not sessions:
+            raise ControlError(-32602, "sessions is required")
+        tags = [json_as_str(item) for item in tags_raw]
+        result = await self._access_call(
+            sessions[0],
+            self._access.tags_set,
+            sessions,
+            tags,
+        )
+        self._after_tags_write(result, after_send)
+        return result
+
+    def _after_tags_write(
+        self,
+        result: JsonObject,
+        after_send: list[tuple[str, JsonObject]],
+    ) -> None:
+        """Refresh catalog rows and notify list clients."""
+        ids = result.get("sessions")
+        session_ids = [json_as_str(item) for item in ids] if isinstance(ids, list) else []
+        cache = getattr(self, "_catalog_cache", None)
+        refresh = getattr(cache, "refresh_rows", None)
+        dirs: list[Path] = []
+        for sid in session_ids:
+            try:
+                found = self._access.require_ref(sid)
+            except FileNotFoundError:
+                continue
+            if found.locator.is_dir():
+                dirs.append(found.locator)
+        if callable(refresh) and dirs:
+            try:
+                refresh(dirs)
+            except OSError:
+                logger.debug("catalog refresh after tags write failed", exc_info=True)
+        after_send.append((NOTIFY_TAGS_CHANGED, as_json_object({"sessionIds": session_ids})))
+        for sid in session_ids:
+            after_send.append((NOTIFY_SESSION_CHANGED, {"sessionId": sid, "listChanged": True}))
 
     def _after_notes_write(
         self,

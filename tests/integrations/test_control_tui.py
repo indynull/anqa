@@ -238,6 +238,36 @@ def test_sessions_reload_loud_wins_over_quiet(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_tags_changed_schedules_quiet_reload(tmp_path: Path) -> None:
+    """tags/changed reloads the list without a positional quiet flag."""
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    app = AnqaApp(
+        traces_path=traces,
+        control_socket=None,
+        control_attach_only=False,
+    )
+
+    class _Timer:
+        def stop(self) -> None:
+            return None
+
+    def _set_timer(_delay: float, _callback: object) -> _Timer:
+        return _Timer()
+
+    def _call_later(fn: object, *args: object, **kwargs: object) -> None:
+        fn(*args, **kwargs)
+
+    app.set_timer = _set_timer  # type: ignore[method-assign]
+    app.call_later = _call_later  # type: ignore[method-assign]
+
+    await app._on_control_notification("tags/changed", {"sessionIds": ["sess-1"]})
+
+    assert app._pending_sessions_reload_quiet is True
+
+
+@pytest.mark.asyncio
 async def test_tui_dead_socket_does_not_claim_attach_or_disk_catalog(
     tmp_path: Path,
 ) -> None:

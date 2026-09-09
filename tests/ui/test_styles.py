@@ -4,12 +4,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from anqa.ui.styles import (
+    EMPHASIS,
     SEVERITY_LABEL,
     SEVERITY_STYLE,
     TOOL_FAMILY_STYLE,
     severity_style,
     syntax_theme_for_app,
+    tag_pills,
+    tag_rich_style,
     tool_family,
     tool_label,
     tool_style,
@@ -139,6 +143,47 @@ class TestLightFaces:
         assert "#" not in read
         assert user
         assert read
+
+
+def test_tag_pills_are_padded_and_cap_with_count() -> None:
+    empty = tag_pills([])
+    assert empty.plain == ""
+    two = tag_pills(["review", "ui"])
+    assert two.plain == " review   ui "
+    four = tag_pills(["review", "ui", "bug", "docs"])
+    assert four.plain == " review   ui   bug  +1 "
+
+
+def test_tag_rich_style_is_theme_primary_not_a_status_role() -> None:
+    """No running app: primary falls back to emphasis, never success/caution/danger."""
+    style = tag_rich_style()
+    assert style == EMPHASIS
+    assert "green" not in style
+    assert "yellow" not in style
+    assert "red" not in style
+
+
+@pytest.mark.asyncio
+async def test_tag_pills_wash_primary_like_the_desktop_badge() -> None:
+    """ansi-dark: primary ink on a surface wash, not a solid primary fill."""
+    from anqa.ui.styles import tag_pill_style
+    from anqa.ui.theme import register_catalog_themes
+    from textual.app import App, ComposeResult
+    from textual.widgets import Static
+
+    class _ThemeApp(App):
+        def compose(self) -> ComposeResult:
+            yield Static("x")
+
+        def on_mount(self) -> None:
+            register_catalog_themes(self)
+            self.theme = "ansi-dark"
+
+    app = _ThemeApp()
+    async with app.run_test(size=(40, 10)) as pilot:
+        await pilot.pause()
+        face = tag_pill_style()
+        assert face == "bold #6B9EFF on #39445A"
 
 
 class TestConstants:

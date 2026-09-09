@@ -283,6 +283,40 @@ def test_catalog_cache_refresh_rows_updates_one_status(tmp_path: Path) -> None:
     assert {str(r["sessionId"]): r["status"] for r in cached}["one"] == "complete"
 
 
+def test_refresh_rows_picks_up_overlay_tags(tmp_path: Path) -> None:
+    """A tags.toml write is not a traces stamp; refresh_rows must still patch."""
+    from anqa.tags import save_tags
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    first = cache.get(force=True)
+    assert first[0].get("tags") in ([], None)
+    save_tags(one, ["anqa", "ui"])
+    updated, changed = cache.refresh_rows([one])
+    assert updated[0]["tags"] == ["anqa", "ui"]
+    assert changed.get("one") is True
+    rebuilt = cache.get(force=True)
+    assert rebuilt[0]["tags"] == ["anqa", "ui"]
+
+
+def test_session_list_reads_overlay_after_tag_removed(tmp_path: Path) -> None:
+    """session/list must show the overlay even when the warm row is stale."""
+    from anqa.tags import save_tags
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    save_tags(one, ["anqa", "ui"])
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    first = cache.get(force=True)
+    assert first[0]["tags"] == ["anqa", "ui"]
+    save_tags(one, ["anqa"])
+    listed = cache.list_for_rpc(limit=50)
+    assert listed["sessions"][0]["tags"] == ["anqa"]
+
+
 def test_refresh_rows_does_not_list_subagent_sibling(tmp_path: Path) -> None:
     """A watch on a new subagent mirror must not append it to session/list."""
     work = tmp_path / "work"

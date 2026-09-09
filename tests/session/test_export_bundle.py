@@ -117,6 +117,14 @@ def test_export_session_bundle_embeds_nested_session_archive(tmp_path: Path) -> 
     )
     save_notes(sess, notes_doc)
 
+    from anqa.harness.ref import SessionRef
+    from anqa.tags import save_tags
+
+    save_tags(
+        SessionRef(harness="grok", session_id=SID, locator=sess),
+        ["review"],
+    )
+
     dest = tmp_path / "out" / "bundle.tar.gz"
     result = export_session_bundle(
         sess,
@@ -153,6 +161,7 @@ def test_export_session_bundle_embeds_nested_session_archive(tmp_path: Path) -> 
     assert not any(n == "run" or n.startswith("run/") for n in names)
     assert "human/summary.md" in names
     assert "notes/operator_notes.toml" in names
+    assert "notes/tags.toml" in names
     assert "notes/schema.toml" not in names
     assert "export me" in notes_text
     assert "n-export" in notes_text

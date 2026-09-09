@@ -66,6 +66,7 @@ APP_SESSIONS: tuple[Binding, ...] = GLOBAL_ALWAYS + (
     _b("S", "select_all", U.bind_select_all(), id="list.select_all", show=False),
     _b("x,delete", "delete_sessions", U.bind_delete(), id="session.delete", show=False),
     _b("E", "export_session_bundle", U.bind_export_bundle(), id="session.export", show=False),
+    _b("t", "tag_sessions", U.bind_tag(), id="session.tag", show=True),
 )
 # Pushed screens: Help · Back · Quit. Refresh stays bound, not in the rail.
 SCREEN_CHROME: tuple[Binding, ...] = (
@@ -86,6 +87,7 @@ SESSION_HOME_ACTIONS: frozenset[str] = frozenset(
         "select_all",
         "delete_sessions",
         "export_session_bundle",
+        "tag_sessions",
     }
 )
 # Pane counts must match TabPaneNavigation.TAB_PANES on each screen/modal.
@@ -150,6 +152,7 @@ BROWSER: tuple[Binding, ...] = (
             priority=True,
         ),
         _b("E", "export_bundle", U.bind_export_bundle(), id="session.export", show=True),
+        _b("t", "tag_session", U.bind_tag(), id="session.tag", show=True),
     )
 )
 CAPABILITY_PICKER: tuple[Binding, ...] = (

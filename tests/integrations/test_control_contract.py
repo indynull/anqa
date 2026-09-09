@@ -71,11 +71,14 @@ REQUIRED_METHODS = (
     "notes/list",
     "notes/upsert",
     "notes/delete",
+    "tags/get",
+    "tags/set",
 )
 REQUIRED_NOTIFICATIONS = (
     "session/selected",
     "session/changed",
     "notes/changed",
+    "tags/changed",
 )
 
 

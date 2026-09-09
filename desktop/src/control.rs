@@ -475,6 +475,20 @@ pub fn session_diff(session: &str) -> Result<Value, ControlError> {
     request("session/diff", json!({ "session": session }))
 }
 
+pub fn tags_get(session: &str) -> Result<Value, ControlError> {
+    request("tags/get", json!({ "session": session }))
+}
+
+pub fn tags_set(sessions: &[String], tags: &[String]) -> Result<Value, ControlError> {
+    request(
+        "tags/set",
+        json!({
+            "sessions": sessions,
+            "tags": tags,
+        }),
+    )
+}
+
 pub fn notes_upsert(
     session: &str,
     note: Value,

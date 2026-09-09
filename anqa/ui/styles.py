@@ -8,9 +8,11 @@ win on ``auto``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import suppress
 
-from textual.app import App
+from rich.text import Text
+from textual.app import App, active_app
 
 from ..session.query import QuerySpanKind
 from ..tool_display import ToolFamily, format_tool_display, tool_family
@@ -21,6 +23,88 @@ CAUTION = "yellow"
 DANGER = "red"
 QUIET = "dim"
 EMPHASIS = "default"
+# Same mix as HUD ``tag_badge`` (primary onto surface).
+TAG_WASH = 0.22
+
+
+def _theme_token(name: str) -> str:
+    """One Textual CSS variable from the running app, or empty."""
+    with suppress(LookupError, Exception):
+        app = active_app.get()
+        if app is None:
+            return ""
+        value = (app.get_css_variables() or {}).get(name)
+        if value:
+            return str(value)
+    return ""
+
+
+def _theme_primary() -> str:
+    """``$primary`` from the running Textual theme, or empty."""
+    return _theme_token("primary")
+
+
+def _mix_hex(fg: str, bg: str, amount: float) -> str | None:
+    """Blend two ``#RRGGBB`` tokens. *amount* is how much *fg* to keep."""
+    left = _rgb(fg)
+    right = _rgb(bg)
+    if left is None or right is None:
+        return None
+    t = max(0.0, min(1.0, amount))
+    mixed = tuple(round(a * t + b * (1.0 - t)) for a, b in zip(left, right, strict=True))
+    return f"#{mixed[0]:02X}{mixed[1]:02X}{mixed[2]:02X}"
+
+
+def _rgb(value: str) -> tuple[int, int, int] | None:
+    raw = (value or "").strip()
+    if len(raw) != 7 or not raw.startswith("#"):
+        return None
+    try:
+        return (int(raw[1:3], 16), int(raw[3:5], 16), int(raw[5:7], 16))
+    except ValueError:
+        return None
+
+
+def tag_rich_style() -> str:
+    """Theme primary for operator tags (not a status role).
+
+    Reads ``$primary`` from the running Textual theme. Without an app,
+    falls back to :data:`EMPHASIS`.
+    """
+    return _theme_primary() or EMPHASIS
+
+
+def tag_pill_style() -> str:
+    """Primary ink on a surface wash (same mix as the desktop badge)."""
+    primary = _theme_primary()
+    if not primary:
+        return "bold reverse"
+    wash = _mix_hex(primary, _theme_token("surface"), TAG_WASH)
+    if wash:
+        return f"bold {primary} on {wash}"
+    return f"bold {primary}"
+
+
+def tag_pills(tags: Sequence[str], *, max_pills: int = 3) -> Text:
+    """Padded primary pills, first *max_pills* then a leftover count.
+
+    :param tags: Tag names in display order.
+    :param max_pills: How many named pills to paint.
+    :returns: Rich text; empty when *tags* is empty.
+    """
+    clean = [str(name).strip() for name in tags if str(name).strip()]
+    extra = max(0, len(clean) - max_pills) if max_pills >= 0 else 0
+    shown = clean[:max_pills] if max_pills >= 0 else clean
+    out = Text()
+    face = tag_pill_style()
+    for i, name in enumerate(shown):
+        if i:
+            out.append(" ")
+        out.append(f" {name} ", style=face)
+    if extra:
+        out.append(f" +{extra} ", style=QUIET)
+    return out
+
 
 # Catalog search box — modifier vs value (same roles on the HUD).
 QUERY_SPAN_STYLE: dict[QuerySpanKind, str] = {
@@ -126,8 +210,8 @@ def theme_is_light(name: str) -> bool:
 
 def active_theme_is_light() -> bool:
     """True when the running Textual app is on a light paper theme."""
-    with suppress(Exception):
-        app = getattr(App, "get_running_app", lambda: None)()
+    with suppress(LookupError, Exception):
+        app = active_app.get()
         if app is not None:
             return theme_is_light(getattr(app, "theme", "") or "")
     return False

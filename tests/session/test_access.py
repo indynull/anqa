@@ -52,6 +52,26 @@ def test_filter_session_catalog_query_and_limit() -> None:
     assert limited["matched"] == 2
 
 
+def test_filter_session_catalog_tag_comma_and() -> None:
+    rows = [
+        {
+            "sessionId": "a",
+            "title": "Alpha",
+            "tags": ["review", "ui"],
+        },
+        {
+            "sessionId": "b",
+            "title": "Beta",
+            "tags": ["review"],
+        },
+    ]
+    both = filter_session_catalog(rows, query="tag:review,ui")
+    assert both["matched"] == 1
+    assert both["sessions"][0]["sessionId"] == "a"
+    either = filter_session_catalog(rows, query="tag:review")
+    assert either["matched"] == 2
+
+
 def test_filter_session_catalog_offset_pages() -> None:
     rows = [
         {
@@ -192,6 +212,13 @@ def test_local_access_list_and_missing_session(tmp_path: Path) -> None:
 
     got = access.session_overview(session.name)
     assert got.get("sessionId") == session.name or "path" in got
+
+    missing = access.tags_get(session.name)
+    assert missing["tags"] == []
+    written = access.tags_set([session.name], ["Review", "ui"])
+    assert written["tags"] == ["Review", "ui"]
+    assert access.tags_get(session.name)["tags"] == ["Review", "ui"]
+    assert "Review" in written["vocabulary"]
 
 
 @pytest.mark.asyncio

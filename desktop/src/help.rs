@@ -170,6 +170,14 @@ pub fn footer_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Me
         push(
             &mut table,
             overlay,
+            "session.tag",
+            "Tag",
+            "t",
+            Message::OpenTags,
+        );
+        push(
+            &mut table,
+            overlay,
             "list.down",
             "Down",
             "j,down",
@@ -358,6 +366,14 @@ pub fn help_table_for(scope: KeyScope, overlay: &KeyOverlay) -> ActionTable<Mess
             Message::ImportPicked(None),
         );
     }
+    push(
+        &mut table,
+        overlay,
+        "session.tag",
+        "Tag",
+        "t",
+        Message::OpenTags,
+    );
     if !scope.browse
         || matches!(scope.tab, Tab::Turns | Tab::Timeline | Tab::Diff)
         || (scope.tab == Tab::Notes && !scope.notes_composing)

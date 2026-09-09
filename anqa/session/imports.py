@@ -16,6 +16,7 @@ from ..harness.registry import adapter, adapters, ref_from_path
 from ..models import JsonObject, as_json_object
 from ..notes import NOTES_FILENAME
 from ..paths import imports_dir
+from ..tags import TAGS_FILENAME
 from .export_bundle import SESSION_ARCHIVE_NAME
 
 logger = logging.getLogger(__name__)
@@ -156,6 +157,17 @@ def _restore_notes(ref: SessionRef, notes_file: Path) -> None:
     shutil.copy2(notes_file, dest_dir / NOTES_FILENAME)
 
 
+def _restore_tags(ref: SessionRef, tags_file: Path) -> None:
+    import tomllib
+
+    from ..tags import save_tags
+
+    raw = tomllib.loads(tags_file.read_text(encoding="utf-8"))
+    values = raw.get("tags")
+    tags = [str(item) for item in values] if isinstance(values, list) else []
+    save_tags(ref, tags)
+
+
 def _open_with_adapter(src: Path, dest_root: Path, harness_id: str) -> SessionRef:
     item = adapter(harness_id)
     if item is None:
@@ -217,6 +229,9 @@ def _import_bundle(path: Path, dest_home: Path, manifest: JsonObject) -> Session
         notes = root / "notes" / NOTES_FILENAME
         if notes.is_file():
             _restore_notes(ref, notes)
+        tags_file = root / "notes" / TAGS_FILENAME
+        if tags_file.is_file():
+            _restore_tags(ref, tags_file)
         _import_children(root, dest_root, ref.harness)
         return ref
 
