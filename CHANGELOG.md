@@ -136,7 +136,7 @@ Cursor (`cursor`) are registered.
   X11). On Wayland bind `anqa desktop --toggle`.
 - `--install-desktop` writes user-local icons and a launcher named
   anqa.
-- The palette is on icedtea 0.17.0. Session cards highlight on release.
+- The palette is on icedtea 0.17.1. Session cards highlight on release.
   Timeline Tail and event Raw use the compact bar switch. Enter opens
   Turn / Filter only while that pick is focused. Status, type, source,
   and session tags share one small badge (icedtea Small pad, role ink

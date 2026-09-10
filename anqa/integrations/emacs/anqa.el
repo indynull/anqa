@@ -173,7 +173,7 @@ A connection whose peer died is dropped so the next command reconnects."
           (anqa--request
            anqa--connection
            "initialize"
-           `(:protocolVersion "2.0.0"
+           `(:protocolVersion "1.0.0"
              :clientInfo (:name "Emacs" :version ,emacs-version))))
       (error
        (anqa--drop-connection)

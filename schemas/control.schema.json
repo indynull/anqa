@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://indynull.github.io/anqa/schemas/control.schema.json",
   "title": "anqa-control",
-  "description": "JSON-RPC 2.0 control protocol for anqad (protocolVersion 2.0.0).",
+  "description": "JSON-RPC 2.0 control protocol for anqad (protocolVersion 1.0.0).",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -411,11 +411,11 @@
       }
     },
     "protocolVersion": {
-      "const": "2.0.0",
+      "const": "1.0.0",
       "description": "Owner initialize protocolVersion."
     },
     "minProtocolVersion": {
-      "const": "2.0.0",
+      "const": "1.0.0",
       "description": "Oldest protocolVersion this owner accepts."
     },
     "methods": {
@@ -440,7 +440,7 @@
       ],
       "properties": {
         "initialize": {
-          "description": "Handshake (owner reports `protocolVersion` `2.0.0`)",
+          "description": "Handshake (owner reports `protocolVersion` `1.0.0`)",
           "type": "object",
           "additionalProperties": false,
           "properties": {
