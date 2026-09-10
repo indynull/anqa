@@ -3416,7 +3416,7 @@ fn event_payload<'a>(ev: &'a TimelineEvent, selected: bool, hud: &'a Hud) -> Ele
             ));
         }
     } else {
-        // Chat / thought / plan: same paint path as TUI detail (markdown for messages).
+        // Chat / thought / plan: same paint path as TUI detail.
         col = col.push(render_payload_text(
             &body,
             &kind,
@@ -4349,6 +4349,17 @@ mod tests {
         assert!(!prod.contains("chat_md_body"));
         assert!(!prod.contains("iced::widget::markdown::view"));
         assert!(prod.contains("widget::markdown_view"));
+        let payload_paint = prod
+            .split("fn render_payload_text")
+            .nth(1)
+            .expect("render_payload_text")
+            .split("fn inset_body")
+            .next()
+            .expect("payload paint");
+        assert!(
+            payload_paint.contains("markdown_bound"),
+            "chat cards paint icedtea markdown_view"
+        );
         assert!(prod.contains("icedtea::motion::overlay"));
         assert!(prod.contains("Slide::Up"));
         assert!(prod.contains("page_slide()"));

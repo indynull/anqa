@@ -2948,7 +2948,11 @@ impl Hud {
             &out_content,
             &out_tool,
         ));
-        if !out.trim().is_empty() {
+        let tool_kind = {
+            let ev = &self.timeline[pos];
+            ev.kind == "tool" || ev.kind == "tool_result"
+        };
+        if tool_kind && !out.trim().is_empty() {
             let id = format!("event.{index}.out");
             keep.insert(id.clone());
             self.bind_field(id, &Self::bind_display(&out));
@@ -3180,40 +3184,73 @@ impl Hud {
         self.copy_text(self.copyable_text())
     }
 
+    fn markdown_copy(&self, id: &str) -> Option<String> {
+        let doc = self.md_docs.get(id)?;
+        if let Some(sel) = self.md_sel.get(id) {
+            let span = sel.span.text(&doc.items);
+            if !span.trim().is_empty() {
+                return Some(span);
+            }
+        }
+        let src = doc.source.trim();
+        if src.is_empty() {
+            None
+        } else {
+            Some(doc.source.clone())
+        }
+    }
+
+    fn has_copy_src(&self, id: &str) -> bool {
+        self.md_docs.contains_key(id) || self.fields.contains(id)
+    }
+
+    fn first_copy_src(&self, ids: impl IntoIterator<Item = String>) -> Option<String> {
+        ids.into_iter().find(|id| self.has_copy_src(id))
+    }
+
     fn select_target_id(&self) -> Option<String> {
         if let Some(id) = &self.select_id {
-            if self.fields.contains(id) {
+            if self.has_copy_src(id) {
                 return Some(id.clone());
             }
         }
-        let id = match self.tab {
+        match self.tab {
             Tab::Timeline => {
                 let ix = self.timeline_open.or(self.timeline_focus)?;
-                let out = format!("event.{ix}.out");
-                if self.fields.contains(&out) {
-                    out
-                } else {
-                    format!("event.{ix}")
-                }
+                self.first_copy_src([
+                    format!("event.{ix}"),
+                    format!("event.{ix}.out"),
+                    format!("event.{ix}.desc"),
+                    format!("event.{ix}.prompt"),
+                    format!("event.{ix}.sched.asked"),
+                ])
             }
-            Tab::Turns => format!("turn.{}.prompt", self.turns_focus?),
+            Tab::Turns => {
+                let i = self.turns_focus?;
+                self.first_copy_src([format!("turn.{i}.assistant"), format!("turn.{i}.prompt")])
+            }
             Tab::Diff => {
-                if self.fields.contains("diff.hunk") {
-                    "diff.hunk".into()
-                } else {
-                    match self.diff_context {
-                        DiffContext::Prompt => "diff.prompt".into(),
-                        DiffContext::Assistant => "diff.assistant".into(),
-                    }
-                }
+                let ctx = match self.diff_context {
+                    DiffContext::Prompt => "diff.prompt",
+                    DiffContext::Assistant => "diff.assistant",
+                };
+                self.first_copy_src([ctx.into(), "diff.hunk".into()])
             }
             Tab::Notes => {
-                let id = self.notes_open.iter().next()?;
-                format!("note.{id}")
+                let nid = self.notes_open.iter().next()?;
+                for i in 0..32 {
+                    let id = format!("note.{nid}.{i}");
+                    if self.has_copy_src(&id) {
+                        return Some(id);
+                    }
+                }
+                let joined = format!("note.{nid}");
+                self.has_copy_src(&joined).then_some(joined)
             }
-            Tab::Overview => "overview.summary".into(),
-        };
-        self.fields.contains(&id).then_some(id)
+            Tab::Overview => self
+                .has_copy_src("overview.summary")
+                .then(|| "overview.summary".into()),
+        }
     }
 
     fn select_all_text(&mut self) -> Task<Message> {
@@ -3244,11 +3281,8 @@ impl Hud {
             }
         }
         if let Some(id) = self.select_id.as_deref() {
-            if let (Some(doc), Some(sel)) = (self.md_docs.get(id), self.md_sel.get(id)) {
-                let span = sel.span.text(&doc.items);
-                if !span.trim().is_empty() {
-                    return span;
-                }
+            if let Some(text) = self.markdown_copy(id) {
+                return text;
             }
         }
         if let Some(sel) = self.fields.first_selection() {
@@ -3257,6 +3291,9 @@ impl Hud {
             }
         }
         if let Some(id) = self.select_target_id() {
+            if let Some(text) = self.markdown_copy(&id) {
+                return text;
+            }
             let body = self.fields.copy(&id);
             if !body.trim().is_empty() {
                 return body;
@@ -3519,7 +3556,12 @@ impl Hud {
                 self.pointer = p;
             }
             icedtea::layout::CursorEvent::Context if self.visible => {
-                self.context_sel = self.fields.first_selection();
+                let live = self.copyable_text();
+                self.context_sel = if live.trim().is_empty() {
+                    None
+                } else {
+                    Some(live)
+                };
                 self.go_context(true);
             }
             icedtea::layout::CursorEvent::Context => {}
@@ -12136,6 +12178,91 @@ mod tests {
             action: iced::widget::text_editor::Action::SelectAll,
         });
         assert_eq!(hud.copyable_text().trim(), src.trim());
+    }
+
+    #[test]
+    fn yank_open_chat_event_copies_the_markdown_body() {
+        let mut hud = hud_with_session();
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(4, "hello from the assistant")],
+            10,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(4));
+        assert!(!hud.event_raw());
+        assert!(hud.markdown("event.4").is_some());
+        assert_eq!(
+            hud.copyable_text().trim(),
+            hud.markdown("event.4").unwrap().source.trim()
+        );
+        let _ = hud.update(Message::Yank);
+        assert!(!hud
+            .toasts()
+            .iter()
+            .any(|t| t.text.contains("Nothing to copy")));
+    }
+
+    #[test]
+    fn yank_turns_and_diff_copy_markdown_bodies() {
+        let mut hud = hud_with_session();
+        hud.tab = Tab::Turns;
+        hud.turns_focus = Some(2);
+        hud.bind_markdown("turn.2.prompt", "user asked");
+        hud.bind_markdown("turn.2.assistant", "assistant **replied**");
+        assert_eq!(
+            hud.copyable_text().trim(),
+            hud.markdown("turn.2.assistant").unwrap().source.trim()
+        );
+        hud.tab = Tab::Diff;
+        hud.diff_context = crate::model::DiffContext::Assistant;
+        hud.bind_markdown("diff.assistant", "# Done\n\n**ok**");
+        hud.bind_field("diff.hunk", "@@ unused");
+        assert_eq!(
+            hud.copyable_text().trim(),
+            hud.markdown("diff.assistant").unwrap().source.trim()
+        );
+        hud.tab = Tab::Notes;
+        hud.notes_open.insert("n1".into());
+        hud.bind_markdown("note.n1.0", "note **body**");
+        hud.bind_field("note.n1", "joined");
+        assert_eq!(
+            hud.copyable_text().trim(),
+            hud.markdown("note.n1.0").unwrap().source.trim()
+        );
+    }
+
+    #[test]
+    fn right_click_copy_uses_the_markdown_document() {
+        let mut hud = hud_with_session();
+        hud.visible = true;
+        load_page(
+            &mut hud,
+            0,
+            false,
+            true,
+            vec![ev_json(4, "hello from the assistant")],
+            10,
+            0,
+        );
+        let _ = hud.update(Message::SelectTimeline(4));
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Move(
+            Point::new(40.0, 80.0),
+        )));
+        let _ = hud.update(Message::Cursor(icedtea::layout::CursorEvent::Context));
+        assert_eq!(
+            hud.copyable_text().trim(),
+            hud.markdown("event.4").unwrap().source.trim()
+        );
+        let copy = hud
+            .context_actions()
+            .into_iter()
+            .find(|a| a.id.as_str() == "edit.copy")
+            .expect("copy");
+        assert!(copy.enabled);
     }
 
     #[test]
