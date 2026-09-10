@@ -17,8 +17,77 @@ pub fn wants_periodic_poll(visible: bool, focused: bool, window_mode: bool) -> b
 }
 pub const LIVE_TAIL_LIMIT: u32 = 24;
 pub const TIMELINE_CHUNK: u32 = 80;
-/// Idle gap before a committed catalog / desktop Timeline / Turns search.
+/// Idle gap before a committed catalog / Timeline / Turns search.
+/// Same as Python ``SEARCH_DEBOUNCE_S`` (0.28s).
 pub const SEARCH_DEBOUNCE_MS: u64 = 280;
+
+/// At most one search pass. A newer query replaces the one in flight.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchFlight {
+    pub gen: u64,
+    pub pending: bool,
+    pub inflight: bool,
+    pub again: bool,
+}
+
+/// What to do when a search RPC returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchDone {
+    pub paint: bool,
+    pub again: bool,
+}
+
+impl SearchFlight {
+    /// New keystroke: bump the generation and mark the idle gap pending.
+    pub fn on_input(&mut self) -> u64 {
+        self.pending = true;
+        self.gen = self.gen.wrapping_add(1);
+        self.gen
+    }
+
+    /// True when this idle-gap timer still owns the box.
+    #[must_use]
+    pub fn apply(&self, gen: u64) -> bool {
+        gen == self.gen
+    }
+
+    /// Idle gap elapsed; the box is ready to fetch.
+    pub fn applied(&mut self) {
+        self.pending = false;
+    }
+
+    /// Start a fetch. `None` when one is already running (it will run again).
+    pub fn start(&mut self) -> Option<u64> {
+        if self.inflight {
+            self.again = true;
+            return None;
+        }
+        self.inflight = true;
+        self.again = false;
+        Some(self.gen)
+    }
+
+    /// End the in-flight fetch.
+    #[must_use]
+    pub fn finish(&mut self, gen: u64) -> SearchDone {
+        let paint = gen == self.gen;
+        self.inflight = false;
+        let again = if paint {
+            self.again
+        } else {
+            self.again && !self.pending
+        };
+        self.again = false;
+        SearchDone { paint, again }
+    }
+
+    /// Drop the committed search (pick a session, hide the palette).
+    pub fn abandon(&mut self) {
+        self.gen = self.gen.wrapping_add(1);
+        self.pending = false;
+        self.again = false;
+    }
+}
 /// Hard cap on buffered timeline rows. Host sessions of 5k–10k stay in memory.
 pub const TIMELINE_BUFFER_CAP: usize = 10_000;
 /// Preview bytes per row on a page. Opened cards refetch a larger slice.
@@ -2273,5 +2342,42 @@ mod tests {
         assert_eq!(rows[0].duration_seconds, 125.0);
         assert_eq!(rows[0].model, "grok-4");
         assert_eq!(rows[0].status, "complete");
+    }
+
+    #[test]
+    fn search_idle_gap_is_280ms() {
+        assert_eq!(SEARCH_DEBOUNCE_MS, 280);
+    }
+
+    #[test]
+    fn search_flight_replaces_the_pass_in_flight() {
+        let mut flight = SearchFlight::default();
+        let g1 = flight.on_input();
+        assert!(flight.apply(g1));
+        flight.applied();
+        assert_eq!(flight.start(), Some(g1));
+        assert!(flight.start().is_none());
+        let g2 = flight.on_input();
+        flight.applied();
+        assert!(flight.start().is_none());
+        let done = flight.finish(g1);
+        assert!(!done.paint);
+        assert!(done.again);
+        assert_eq!(flight.start(), Some(g2));
+        let done = flight.finish(g2);
+        assert!(done.paint);
+        assert!(!done.again);
+    }
+
+    #[test]
+    fn search_flight_abandon_drops_stale_paint() {
+        let mut flight = SearchFlight::default();
+        let g1 = flight.on_input();
+        flight.applied();
+        assert_eq!(flight.start(), Some(g1));
+        flight.abandon();
+        let done = flight.finish(g1);
+        assert!(!done.paint);
+        assert!(!done.again);
     }
 }

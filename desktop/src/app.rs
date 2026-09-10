@@ -35,10 +35,10 @@ use crate::live::{
     session_needs_live_poll, session_rpc_ref, should_fetch_timeline, should_load_previous_timeline,
     should_page_recent, spotlight_recent, timeline_coverage_complete, timeline_page_next,
     timeline_range_label, timeline_window_start, trim_timeline_buffer, wants_periodic_poll,
-    CardMark, TickInput, AGENT_ROW_H, CLOSED_TURN_CARD_H, IDLE_POLL_MS, LIVE_TAIL_LIMIT,
-    OVERVIEW_LIST_OVERSCAN, OVERVIEW_LIST_ROW_H, SEARCH_DEBOUNCE_MS, SPOTLIGHT_RECENT, STATS_ROW_H,
-    TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS, TIMELINE_OVERSCAN,
-    TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H, TURNS_OVERSCAN,
+    CardMark, SearchFlight, TickInput, AGENT_ROW_H, CLOSED_TURN_CARD_H, IDLE_POLL_MS,
+    LIVE_TAIL_LIMIT, OVERVIEW_LIST_OVERSCAN, OVERVIEW_LIST_ROW_H, SEARCH_DEBOUNCE_MS,
+    SPOTLIGHT_RECENT, STATS_ROW_H, TIMELINE_BUFFER_CAP, TIMELINE_CHUNK, TIMELINE_OPEN_CHARS,
+    TIMELINE_OVERSCAN, TIMELINE_PREVIEW_CHARS, TIMELINE_ROW_H, TURNS_OVERSCAN,
 };
 use crate::model::{
     DiffContext, DiffPointPick, EventsTurnPick, KindFilter, NoteDraft, SchemaField, SessionRow, Tab,
@@ -307,8 +307,7 @@ impl ExtractKey {
 pub struct Hud {
     query: String,
     catalog_query: String,
-    catalog_search_pending: bool,
-    catalog_search_gen: u64,
+    catalog_search: SearchFlight,
     last_list: Option<LastListReq>,
     all_sessions: Vec<SessionRow>,
     /// Owner ``matched`` from the last unfiltered ``session/list`` page.
@@ -357,7 +356,7 @@ pub struct Hud {
     timeline_loading: bool,
     timeline_query: String,
     timeline_query_draft: String,
-    timeline_search_pending: bool,
+    timeline_search: SearchFlight,
     timeline_kind: KindFilter,
     timeline_focus: Option<i64>,
     /// Follow the last Timeline event while a turn is open.
@@ -467,8 +466,7 @@ pub struct Hud {
     turns_focus: Option<i64>,
     turns_query: String,
     turns_query_draft: String,
-    turns_search_pending: bool,
-    turns_search_gen: u64,
+    turns_search: SearchFlight,
     turns_hits: Vec<crate::wire::TurnRow>,
     last_turns: Option<LastTurnsReq>,
     turns_filter: Vec<usize>,
@@ -485,7 +483,6 @@ pub struct Hud {
     diff_hunk_scroll_id: Id,
     diff_point_options: Vec<DiffPointPick>,
     diff_context: DiffContext,
-    timeline_search_gen: u64,
     fields: icedtea::field::Selectables,
     md_docs: HashMap<String, icedtea::widget::MarkdownDoc>,
     md_sel: HashMap<String, icedtea::select::MarkdownSelect>,
@@ -525,8 +522,7 @@ impl Default for Hud {
         Self {
             query: String::new(),
             catalog_query: String::new(),
-            catalog_search_pending: false,
-            catalog_search_gen: 0,
+            catalog_search: SearchFlight::default(),
             last_list: None,
             all_sessions: vec![],
             catalog_matched: 0,
@@ -570,7 +566,7 @@ impl Default for Hud {
             timeline_loading: false,
             timeline_query: String::new(),
             timeline_query_draft: String::new(),
-            timeline_search_pending: false,
+            timeline_search: SearchFlight::default(),
             timeline_kind: KindFilter::All,
             timeline_focus: None,
             timeline_follow_tail: false,
@@ -673,8 +669,7 @@ impl Default for Hud {
             turns_focus: None,
             turns_query: String::new(),
             turns_query_draft: String::new(),
-            turns_search_pending: false,
-            turns_search_gen: 0,
+            turns_search: SearchFlight::default(),
             turns_hits: vec![],
             last_turns: None,
             turns_filter: vec![],
@@ -691,7 +686,6 @@ impl Default for Hud {
             diff_hunk_scroll_id: Id::new("diff-hunk"),
             diff_point_options: vec![],
             diff_context: DiffContext::Prompt,
-            timeline_search_gen: 0,
             fields: icedtea::field::Selectables::new(),
             md_docs: HashMap::new(),
             md_sel: HashMap::new(),
@@ -1091,9 +1085,7 @@ impl Hud {
                 }
                 self.query = q;
                 self.sync_hint_clock();
-                self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
-                self.catalog_search_pending = true;
-                let gen = self.catalog_search_gen;
+                let gen = self.catalog_search.on_input();
                 Task::perform(
                     async {
                         tokio::time::sleep(Duration::from_millis(SEARCH_DEBOUNCE_MS)).await;
@@ -1102,10 +1094,10 @@ impl Hud {
                 )
             }
             Message::CatalogSearchApply(gen) => {
-                if gen != self.catalog_search_gen {
+                if !self.catalog_search.apply(gen) {
                     return Task::none();
                 }
-                self.catalog_search_pending = false;
+                self.catalog_search.applied();
                 self.catalog_query = self.query.clone();
                 let keep = self.session_keep_id();
                 if self.catalog_query.trim().is_empty() {
@@ -1116,19 +1108,17 @@ impl Hud {
                 self.start_list_search()
             }
             Message::ListSearchLoaded { gen, result } => {
-                if gen != self.catalog_search_gen {
-                    return Task::none();
-                }
-                match result {
-                    Ok(v) => {
-                        self.apply_list_search(v);
-                        Task::none()
-                    }
-                    Err(e) => {
-                        self.mark_down(&e);
-                        Task::none()
+                let done = self.catalog_search.finish(gen);
+                if done.paint {
+                    match result {
+                        Ok(v) => self.apply_list_search(v),
+                        Err(e) => self.mark_down(&e),
                     }
                 }
+                if done.again {
+                    return self.start_list_search();
+                }
+                Task::none()
             }
             Message::OpenChild { path, sid } => self.open_child_session(path, sid),
             Message::FocusSession(i) => {
@@ -1272,9 +1262,7 @@ impl Hud {
             Message::TimelineQuery(q) => {
                 self.timeline_query_draft = q;
                 self.sync_hint_clock();
-                self.timeline_search_gen = self.timeline_search_gen.wrapping_add(1);
-                self.timeline_search_pending = true;
-                let gen = self.timeline_search_gen;
+                let gen = self.timeline_search.on_input();
                 Task::perform(
                     async {
                         tokio::time::sleep(Duration::from_millis(SEARCH_DEBOUNCE_MS)).await;
@@ -1283,11 +1271,11 @@ impl Hud {
                 )
             }
             Message::TimelineSearchApply(gen) => {
-                if gen != self.timeline_search_gen {
+                if !self.timeline_search.apply(gen) {
                     return Task::none();
                 }
+                self.timeline_search.applied();
                 self.timeline_query = self.timeline_query_draft.clone();
-                self.timeline_search_pending = false;
                 self.rebuild_tl_filter();
                 if !self.timeline_query.trim().is_empty() {
                     // Search-all: leave the turn pick on All.
@@ -1505,9 +1493,7 @@ impl Hud {
             Message::TurnsQuery(q) => {
                 self.turns_query_draft = q;
                 self.sync_hint_clock();
-                self.turns_search_gen = self.turns_search_gen.wrapping_add(1);
-                self.turns_search_pending = true;
-                let gen = self.turns_search_gen;
+                let gen = self.turns_search.on_input();
                 Task::perform(
                     async {
                         tokio::time::sleep(Duration::from_millis(SEARCH_DEBOUNCE_MS)).await;
@@ -1516,10 +1502,10 @@ impl Hud {
                 )
             }
             Message::TurnsSearchApply(gen) => {
-                if gen != self.turns_search_gen {
+                if !self.turns_search.apply(gen) {
                     return Task::none();
                 }
-                self.turns_search_pending = false;
+                self.turns_search.applied();
                 self.turns_query = self.turns_query_draft.clone();
                 if self.turns_query.trim().is_empty() {
                     self.turns_hits.clear();
@@ -1529,19 +1515,22 @@ impl Hud {
                 self.start_turns_search()
             }
             Message::TurnsSearchLoaded { gen, result } => {
-                if gen != self.turns_search_gen {
-                    return Task::none();
+                let done = self.turns_search.finish(gen);
+                if !done.paint {
+                    return if done.again {
+                        self.start_turns_search()
+                    } else {
+                        Task::none()
+                    };
                 }
                 match result {
-                    Ok(v) => {
-                        self.apply_turns_search(v);
-                        Task::none()
-                    }
-                    Err(e) => {
-                        self.mark_down(&e);
-                        Task::none()
-                    }
+                    Ok(v) => self.apply_turns_search(v),
+                    Err(e) => self.mark_down(&e),
                 }
+                if done.again {
+                    return self.start_turns_search();
+                }
+                Task::none()
             }
             Message::LoadMoreTimeline => self.load_more_timeline(),
             Message::StartNote { turn, event } => {
@@ -2009,7 +1998,7 @@ impl Hud {
                 advance,
                 result,
             } => {
-                if self.timeline_search_pending || gen != self.timeline_gen {
+                if gen != self.timeline_gen {
                     return Task::none();
                 }
                 self.timeline_loading = false;
@@ -2130,6 +2119,12 @@ impl Hud {
                         }
                     }
                     Err(e) => self.mark_down(&e),
+                }
+                if self.timeline_search.again && !self.timeline_search.pending {
+                    self.timeline_search.again = false;
+                    if let Some(sid) = self.detail_sid() {
+                        return self.refetch_timeline_search(sid);
+                    }
                 }
                 Task::none()
             }
@@ -4556,7 +4551,7 @@ impl Hud {
         self.stats_cursor = None;
         self.timeline_query.clear();
         self.timeline_query_draft.clear();
-        self.timeline_search_pending = false;
+        self.timeline_search.abandon();
         self.timeline_kind = KindFilter::All;
         self.timeline.clear();
         self.timeline_sid.clear();
@@ -4622,6 +4617,11 @@ impl Hud {
     }
 
     fn refetch_timeline_search(&mut self, sid: String) -> Task<Message> {
+        if self.timeline_loading {
+            self.timeline_search.again = true;
+            return Task::none();
+        }
+        self.timeline_loading = true;
         self.timeline_gen = self.timeline_gen.wrapping_add(1);
         let gen = self.timeline_gen;
         self.start_timeline(TimelineFetch {
@@ -5504,7 +5504,7 @@ impl Hud {
         self.tab = Tab::Timeline;
         self.timeline_query.clear();
         self.timeline_query_draft.clear();
-        self.timeline_search_pending = false;
+        self.timeline_search.abandon();
         if let Some(t) = self.turn_row_for_event(index).cloned() {
             self.events_turn_index = Some(t.turn_index);
             self.timeline_prompt = t.prompt_index;
@@ -5577,7 +5577,7 @@ impl Hud {
     }
 
     fn fill_timeline_before(&mut self, sid: String) -> Task<Message> {
-        if self.timeline_search_pending || self.timeline_loading {
+        if self.timeline_search.pending || self.timeline_loading {
             return Task::none();
         }
         let Some((off, limit)) = previous_timeline_page(self.timeline_offset, TIMELINE_CHUNK)
@@ -5617,7 +5617,7 @@ impl Hud {
     }
 
     fn fill_timeline(&mut self, sid: String) -> Task<Message> {
-        if self.timeline_search_pending || self.timeline_complete() || self.timeline_loading {
+        if self.timeline_search.pending || self.timeline_complete() || self.timeline_loading {
             return Task::none();
         }
         let off = if self.timeline.is_empty() {
@@ -5677,7 +5677,7 @@ impl Hud {
     }
 
     fn fetch_open_event(&mut self, index: i64) -> Task<Message> {
-        if self.overview_sid.is_empty() || self.timeline_search_pending {
+        if self.overview_sid.is_empty() || self.timeline_search.pending {
             return Task::none();
         }
         let gen = self.timeline_gen;
@@ -5717,7 +5717,7 @@ impl Hud {
     }
 
     fn refresh_timeline_tail(&mut self, sid: String) -> Task<Message> {
-        if self.timeline_search_pending || self.timeline_loading {
+        if self.timeline_search.pending || self.timeline_loading {
             return Task::none();
         }
         if self.timeline_sid.is_empty() {
@@ -5766,7 +5766,7 @@ impl Hud {
     }
 
     fn fetch_timeline_end(&mut self, sid: String) -> Task<Message> {
-        if self.timeline_search_pending {
+        if self.timeline_search.pending {
             return Task::none();
         }
         let limit = TIMELINE_CHUNK;
@@ -7335,13 +7335,11 @@ impl Hud {
             self.catalog_query.clone_from(&self.query);
         }
         self.query.clear();
-        self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
-        self.catalog_search_pending = false;
+        self.catalog_search.abandon();
     }
 
     fn abandon_catalog_search(&mut self) {
-        self.catalog_search_gen = self.catalog_search_gen.wrapping_add(1);
-        self.catalog_search_pending = false;
+        self.catalog_search.abandon();
         self.catalog_query.clear();
         if self.status_is_catalog_count() {
             self.set_catalog_idle_status();
@@ -7349,24 +7347,25 @@ impl Hud {
     }
 
     fn abandon_turns_search(&mut self) {
-        self.turns_search_gen = self.turns_search_gen.wrapping_add(1);
-        self.turns_search_pending = false;
+        self.turns_search.abandon();
         self.turns_query.clear();
         self.turns_query_draft.clear();
         self.turns_hits.clear();
     }
 
     fn refresh_catalog_search(&mut self) -> Task<Message> {
-        if self.catalog_search_pending || self.catalog_query.trim().is_empty() {
+        if self.catalog_search.pending || self.catalog_query.trim().is_empty() {
             return Task::none();
         }
         self.start_list_search()
     }
 
     fn start_list_search(&mut self) -> Task<Message> {
+        let Some(gen) = self.catalog_search.start() else {
+            return Task::none();
+        };
         let q = self.catalog_query.clone();
         self.last_list = Some(LastListReq { query: q.clone() });
-        let gen = self.catalog_search_gen;
         Task::perform(rpc(move || control::session_list_all(&q)), move |result| {
             Message::ListSearchLoaded { gen, result }
         })
@@ -7395,12 +7394,14 @@ impl Hud {
     }
 
     fn start_turns_search(&mut self) -> Task<Message> {
-        let q = self.turns_query.clone();
-        self.last_turns = Some(LastTurnsReq { query: q.clone() });
         let Some(sid) = self.detail_rpc_ref() else {
             return Task::none();
         };
-        let gen = self.turns_search_gen;
+        let Some(gen) = self.turns_search.start() else {
+            return Task::none();
+        };
+        let q = self.turns_query.clone();
+        self.last_turns = Some(LastTurnsReq { query: q.clone() });
         Task::perform(
             rpc(move || control::session_turns(&sid, &q)),
             move |result| Message::TurnsSearchLoaded { gen, result },
@@ -7960,7 +7961,10 @@ mod tests {
                 },
             ],
             catalog_query: "has:error".into(),
-            catalog_search_gen: 5,
+            catalog_search: SearchFlight {
+                gen: 5,
+                ..SearchFlight::default()
+            },
             sessions: vec![SessionRow {
                 session_id: "bad".into(),
                 title: "broke".into(),
@@ -7970,11 +7974,11 @@ mod tests {
             }],
             ..Hud::default()
         };
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.show_palette();
         assert!(hud.catalog_query.is_empty());
         assert!(hud.query.is_empty());
-        assert_ne!(hud.catalog_search_gen, gen);
+        assert_ne!(hud.catalog_search.gen, gen);
         assert!(
             hud.sessions().iter().any(|r| r.session_id == "ok"),
             "summon must show Recent, not the last catalog hits"
@@ -8055,7 +8059,7 @@ mod tests {
         };
         hud.rerank_visible();
         let _ = hud.update(Message::SearchChanged("harness:pi".into()));
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         let _ = hud.update(Message::ListSearchLoaded {
             gen,
@@ -10209,7 +10213,7 @@ mod tests {
             false,
         );
         let _ = hud.update(Message::SearchChanged("zzz-nope".into()));
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         let _ = hud.update(Message::ListSearchLoaded {
             gen,
@@ -10218,7 +10222,7 @@ mod tests {
         assert_eq!(hud.status(), "No matches for “zzz-nope”");
 
         let _ = hud.update(Message::SearchChanged(String::new()));
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         assert_eq!(hud.status(), "2 sessions · ready");
         assert_eq!(hud.sessions().len(), 2);
@@ -10244,7 +10248,7 @@ mod tests {
             ..Hud::default()
         };
         let _ = hud.update(Message::SearchChanged("alpha".into()));
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         let _ = hud.update(Message::ListSearchLoaded {
             gen,
@@ -10261,7 +10265,7 @@ mod tests {
         hud.list_window.end = 2;
 
         let _ = hud.update(Message::SearchChanged(String::new()));
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         assert_eq!(hud.sessions().len(), SPOTLIGHT_RECENT);
         assert!(
@@ -10578,7 +10582,7 @@ mod tests {
         let _ = hud.update(Message::TurnsQuery("beta".into()));
         assert_eq!(hud.turns_query_draft(), "beta");
         assert_eq!(hud.filtered_turn_indices().len(), 3);
-        let gen = hud.turns_search_gen;
+        let gen = hud.turns_search.gen;
         let _ = hud.update(Message::TurnsSearchApply(gen));
         assert_eq!(hud.last_turns().map(|r| r.query.as_str()), Some("beta"));
         assert_eq!(hud.filtered_turn_indices().len(), 3);
@@ -10639,7 +10643,7 @@ mod tests {
         assert_eq!(hud.sessions()[0].session_id, "bbb-target");
         // Clear search: must not map filtered index 0 onto all_sessions[0] (aaa-first).
         let _ = hud.update(Message::SearchChanged(String::new()));
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         assert!(hud.query.is_empty());
         assert_eq!(hud.selected_sid().as_deref(), Some("bbb-target"));
@@ -12254,7 +12258,7 @@ mod tests {
         let _ = hud.update(Message::TimelineQuery("grep".into()));
         assert_eq!(hud.timeline_query_draft(), "grep");
         assert_eq!(hud.timeline_query(), "");
-        assert!(hud.timeline_search_gen > 0);
+        assert!(hud.timeline_search.gen > 0);
         let _ = hud.update(Message::TimelineSearchApply(0));
         assert_eq!(hud.timeline_query_draft(), "grep");
         assert_eq!(hud.timeline_query(), "");
@@ -12279,7 +12283,7 @@ mod tests {
         assert_eq!(hud.filtered_indices().len(), 3);
         let _ = hud.update(Message::TimelineQuery("needle".into()));
         assert_eq!(hud.filtered_indices().len(), 3);
-        let gen = hud.timeline_search_gen;
+        let gen = hud.timeline_search.gen;
         let _ = hud.update(Message::TimelineSearchApply(gen));
         assert_eq!(hud.timeline_query(), "needle");
         assert_eq!(
@@ -12309,6 +12313,42 @@ mod tests {
     }
 
     #[test]
+    fn catalog_search_reruns_latest_after_inflight_pass() {
+        let mut hud = Hud {
+            all_sessions: vec![SessionRow {
+                session_id: "ok".into(),
+                title: "clean".into(),
+                ..SessionRow::default()
+            }],
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::SearchChanged("in:a".into()));
+        let g1 = hud.catalog_search.gen;
+        let _ = hud.update(Message::CatalogSearchApply(g1));
+        assert!(hud.catalog_search.inflight);
+        let _ = hud.update(Message::SearchChanged("in:anqa".into()));
+        let g2 = hud.catalog_search.gen;
+        let _ = hud.update(Message::CatalogSearchApply(g2));
+        assert!(hud.catalog_search.again);
+        assert_eq!(hud.catalog_query, "in:anqa");
+        let _ = hud.update(Message::ListSearchLoaded {
+            gen: g1,
+            result: Ok(json!({
+                "sessions": [{
+                    "sessionId": "stale",
+                    "title": "old"
+                }]
+            })),
+        });
+        assert!(
+            hud.sessions().iter().all(|r| r.session_id != "stale"),
+            "stale catalog hits must not paint"
+        );
+        assert_eq!(hud.last_list().map(|r| r.query.as_str()), Some("in:anqa"));
+        assert!(hud.catalog_search.inflight);
+    }
+
+    #[test]
     fn catalog_search_does_not_match_on_keystroke() {
         let mut hud = Hud {
             all_sessions: vec![
@@ -12335,7 +12375,7 @@ mod tests {
         let _ = hud.update(Message::SearchChanged("has:error".into()));
         assert_eq!(hud.query(), "has:error");
         assert_eq!(hud.sessions().len(), before);
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         assert_eq!(hud.last_list().map(|r| r.query.as_str()), Some("has:error"));
     }
@@ -12362,7 +12402,7 @@ mod tests {
         };
         hud.rerank_visible();
         let _ = hud.update(Message::SearchChanged("has:error".into()));
-        let gen = hud.catalog_search_gen;
+        let gen = hud.catalog_search.gen;
         let _ = hud.update(Message::CatalogSearchApply(gen));
         let _ = hud.update(Message::SelectSession(0));
         let _ = hud.update(Message::ListSearchLoaded {
@@ -12390,11 +12430,14 @@ mod tests {
                 ..SessionRow::default()
             }],
             catalog_query: "old".into(),
-            catalog_search_gen: 4,
+            catalog_search: SearchFlight {
+                gen: 4,
+                ..SearchFlight::default()
+            },
             ..Hud::default()
         };
         let _ = hud.update(Message::SearchChanged("new".into()));
-        assert!(hud.catalog_search_pending);
+        assert!(hud.catalog_search.pending);
         let _ = hud.update(Message::ListLoaded {
             quiet: true,
             result: Ok(json!({
@@ -12417,7 +12460,7 @@ mod tests {
     fn session_switch_drops_inflight_turns_search() {
         let mut hud = hud_with_session();
         hud.turns_query = "beta".into();
-        hud.turns_search_gen = 7;
+        hud.turns_search.gen = 7;
         hud.turns_hits = vec![crate::wire::TurnRow {
             turn_index: 2,
             ..Default::default()

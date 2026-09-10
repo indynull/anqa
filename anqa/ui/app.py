@@ -73,6 +73,7 @@ from .i18n import join_ui, setup_i18n, t
 from .keys import format_key_chord
 from .query_highlight import CatalogQueryHighlighter
 from .screens.browser import BrowserScreen
+from .search import SearchDebounce, SearchFlight
 from .theme import (
     AUTO_NAMES,
     family_of_theme,
@@ -329,7 +330,8 @@ class AnqaApp(App):
         self._select_all_scope: set[str] = set()
         self._session_search: str = ""
         self._session_search_applied: str = ""
-        self._session_search_debounce: Timer | None = None
+        self._session_search_debounce = SearchDebounce()
+        self._session_flight = SearchFlight()
         self._catalog_query_slice: bool = False
         self._delete_pending_paths: list[Path] | None = None
         self._delete_cursor_key: str | None = None
@@ -1278,6 +1280,10 @@ class AnqaApp(App):
         gen = self._begin_sessions_load()
         if self._control_socket is not None:
             if self._control_attached:
+                if (self._session_search_applied or "").strip():
+                    call_ui(self, self._refresh_session_search)
+                    call_ui(self, self._finish_sessions_load, gen)
+                    return
                 self._load_sessions_via_control(gen, quiet=quiet)
                 return
             # Socket configured but not yet attached: do not scan disk (would
@@ -1727,38 +1733,90 @@ class AnqaApp(App):
             return
         self._session_search = raw
         self._refresh_query_hints()
-        self._arm_session_search_debounce()
+        self._session_search_debounce.arm(self, self._apply_debounced_session_search)
 
     @on(Input.Submitted, "#session-search-input")
     def _on_session_search_submitted(self, event: Input.Submitted) -> None:
         """Apply the filter now and move focus back to the session list."""
         self._session_search = event.value or ""
         self._refresh_query_hints()
-        self._apply_debounced_session_search()
+        self._session_search_debounce.flush(self._apply_debounced_session_search)
         with suppress(Exception):
             focus_primary_list(self.query_one("#session-table", DataTable))
 
-    def _arm_session_search_debounce(self) -> None:
-        if self._session_search_debounce is not None:
-            try:
-                self._session_search_debounce.stop()
-            except Exception:
-                pass
-            self._session_search_debounce = None
-        from ..constants import TIMELINE_SEARCH_DEBOUNCE_S
-
-        self._session_search_debounce = self.set_timer(
-            TIMELINE_SEARCH_DEBOUNCE_S, self._apply_debounced_session_search
-        )
-
     def _apply_debounced_session_search(self) -> None:
         """Commit the search box and rebuild the sessions table."""
-        self._session_search_debounce = None
+        self._session_search_debounce.cancel()
         self._session_search_applied = self._session_search
+        self._session_flight.bump()
         if self._control_socket is not None and self._control_attached:
+            if (self._session_search_applied or "").strip():
+                self._ensure_session_search()
+                return
             self._load_sessions(include_host=True, quiet=True)
             return
         self._populate_session_table(force=True)
+
+    def _refresh_session_search(self) -> None:
+        """Re-run the committed catalog query (live list tick)."""
+        if self._session_flight.inflight:
+            self._session_flight.bump()
+            return
+        self._session_flight.bump()
+        self._ensure_session_search()
+
+    def _ensure_session_search(self) -> None:
+        """Start the catalog search worker, or mark the in-flight pass dirty."""
+        if not (self._session_search_applied or "").strip():
+            return
+        if not self._session_flight.request():
+            return
+        self._run_session_search()
+
+    @work(thread=True, group="sessions-search")
+    def _run_session_search(self) -> None:
+        """Fetch the latest catalog query. Loop when a newer box replaces it."""
+        try:
+            while True:
+                self._session_flight.again = False
+                gen = self._session_flight.gen
+                query = (self._session_search_applied or "").strip()
+                if not query:
+                    return
+                result = self._fetch_control_catalog_sync(query=query, drain=True)
+                if not self._session_flight.current(gen):
+                    continue
+                raw = result.get("sessions")
+                wire_rows = (
+                    [as_json_object(row) for row in raw if isinstance(row, dict)]
+                    if isinstance(raw, list)
+                    else []
+                )
+                rows = self._rows_from_catalog_wire(wire_rows)
+                rev_raw = result.get("revision")
+                rev = rev_raw if isinstance(rev_raw, int) else 0
+
+                def _apply() -> None:
+                    if not self._session_flight.current(gen):
+                        return
+                    self._meta_only = rows
+                    self._catalog_query_slice = True
+                    if rev > 0:
+                        self._catalog_revision = rev
+                    self._rebuild_session_filters()
+                    self._populate_session_table(force=True)
+
+                call_ui(self, _apply)
+                if not self._session_flight.current(gen):
+                    continue
+                return
+        finally:
+
+            def _done() -> None:
+                if self._session_flight.finish():
+                    self._ensure_session_search()
+
+            call_ui(self, _done)
 
     def _refresh_query_hints(self) -> None:
         """Paint last-token completions under the search box."""

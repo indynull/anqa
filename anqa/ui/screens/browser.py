@@ -20,6 +20,7 @@ from ..data_table import (
     style_data_table,
 )
 from ..i18n import join_ui, t
+from ..search import SearchDebounce, SearchFlight
 
 logger = logging.getLogger(__name__)
 from collections import Counter, defaultdict
@@ -40,7 +41,6 @@ from textual.widgets import (
 )
 
 from ... import event_types as et
-from ...constants import TIMELINE_SEARCH_DEBOUNCE_S
 from ...control.server import ControlError
 from ...harness.registry import require_adapter
 from ...models import JsonObject, SessionMeta, ToolInputBag, TraceEvent, as_json_object
@@ -268,8 +268,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         # (timeline_len, last_event_index) — skip re-segment only when tail unchanged.
         self._turn_rebuild_sig: tuple[int, int | None, int] | None = None
         self._detail_debounce: Timer | None = None
-        self._search_debounce: Timer | None = None
-        self._search_gen: int = 0
+        self._search_debounce = SearchDebounce()
+        self._timeline_flight = SearchFlight()
         self._detail_expanded: set[int] = set()
         self._detail_expanding: set[int] = set()
         from ...session.context_samples import ContextSampleStore
@@ -422,12 +422,7 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except Exception:
                 pass
             self._detail_debounce = None
-        if self._search_debounce is not None:
-            try:
-                self._search_debounce.stop()
-            except Exception:
-                pass
-            self._search_debounce = None
+        self._search_debounce.cancel()
         # Resume home-list FS watch paused while this browser owned the tree.
         pause = getattr(self.app, "_pause_home_traces_watch", None)
         if callable(pause):
@@ -984,13 +979,26 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         if self.is_mounted:
             call_ui(resolve_ui_app(self), self._apply_timeline_remainder)
 
-    @work(thread=True, exclusive=True, group="timeline-scope")
+    @work(thread=True, group="timeline-scope")
     def _start_control_timeline_scope(self) -> None:
         """Replace the timeline with the first page of the current Turn filter."""
         try:
-            self._reload_control_timeline_scope()
+            while True:
+                self._timeline_flight.again = False
+                gen = self._timeline_flight.gen
+                self._reload_control_timeline_scope()
+                if not self._timeline_flight.current(gen):
+                    continue
+                return
         except (TimeoutError, OSError, ConnectionError, ControlError) as exc:
             self._on_control_browser_error(exc, notify=False)
+        finally:
+
+            def _done() -> None:
+                if self._timeline_flight.finish():
+                    self._ensure_timeline_search()
+
+            call_ui(resolve_ui_app(self), _done)
 
     def _reload_control_timeline_scope(self) -> None:
         """Replace the timeline with the first page of the current Turn filter."""
@@ -2670,20 +2678,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     def _on_search_changed(self, event: Input.Changed) -> None:
         """Keep the caret moving; match and paint after the shared idle gap."""
         self._timeline_search = event.value or ""
-        self._search_gen += 1
         self._refresh_timeline_query_hints()
-        self._arm_timeline_search_debounce()
-
-    def _arm_timeline_search_debounce(self) -> None:
-        if self._search_debounce is not None:
-            try:
-                self._search_debounce.stop()
-            except Exception:
-                pass
-            self._search_debounce = None
-        self._search_debounce = self.set_timer(
-            TIMELINE_SEARCH_DEBOUNCE_S, self._apply_debounced_timeline_search
-        )
+        self._search_debounce.arm(self, self._apply_debounced_timeline_search)
 
     def _refresh_timeline_query_hints(self) -> None:
         """Paint last-token completions under the Timeline search box."""
@@ -2703,10 +2699,20 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
         hint.update(line)
 
     def _apply_debounced_timeline_search(self) -> None:
-        self._search_debounce = None
+        self._search_debounce.cancel()
         if not self.is_mounted:
             return
+        self._timeline_flight.bump()
         self._start_timeline_search_worker()
+
+    def _ensure_timeline_search(self) -> None:
+        """Start one Timeline fetch/match, or replace the pass in flight."""
+        if not self._timeline_flight.request():
+            return
+        if self._uses_control_data():
+            self._start_control_timeline_scope()
+            return
+        self._run_local_timeline_search()
 
     def _start_timeline_search_worker(self) -> None:
         """Copy table state on this thread, then match off it."""
@@ -2719,64 +2725,86 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             except NoMatches:
                 return
             tl.set_search_hits(query.strip(), None)
-            self._start_control_timeline_scope()
-            return
+        self._ensure_timeline_search()
+
+    def _local_timeline_payload(
+        self,
+    ) -> tuple[
+        str,
+        str,
+        str,
+        tuple[list[TraceEvent], str, tuple[float, int, int, int], dict[int, int]] | None,
+    ]:
+        """Copy Timeline rows on the UI thread for an off-thread match."""
+        query = (self._timeline_search or "").strip()
         try:
             tl = self.query_one("#timeline-list", TimelineTable)
         except NoMatches:
-            return
-        self._search_gen += 1
-        gen = self._search_gen
+            return query, "", "", None
         key, stamp = tl.search_identity(tl.events)
-        finished = finished_prefix(query).strip()
+        finished = finished_prefix(self._timeline_search or "").strip()
         need_hay = bool(finished) and query_needs_hay(finished)
-        payload: tuple[list[TraceEvent], str, tuple[float, int, int, int], dict[int, int]] | None
         if not finished or index_covers(key, stamp, len(tl.events), hay=need_hay):
-            payload = None
-        else:
-            payload = (list(tl.events), key, stamp, dict(tl._turn_by_index))
-        self._run_timeline_search(gen, query, finished, key, payload)
+            return query, finished, key, None
+        return (
+            query,
+            finished,
+            key,
+            (list(tl.events), key, stamp, dict(tl._turn_by_index)),
+        )
 
-    @work(thread=True, exclusive=True, group="timeline-search")
-    def _run_timeline_search(
-        self,
-        gen: int,
-        query: str,
-        finished: str,
-        key: str,
-        payload: tuple[list[TraceEvent], str, tuple[float, int, int, int], dict[int, int]] | None,
-    ) -> None:
-        hits: set[int] | None
-        if not finished:
-            hits = None
-        elif payload is None:
-            hits = set(scan_index(key, finished))
-        else:
-            events, key, stamp, turns = payload
-            hits = set(
-                matching_indexes(
-                    events,
-                    finished,
-                    key=key,
-                    stamp=stamp,
-                    turns=turns,
-                )
-            )
+    @work(thread=True, group="timeline-search")
+    def _run_local_timeline_search(self) -> None:
+        try:
+            while True:
+                self._timeline_flight.again = False
+                gen = self._timeline_flight.gen
+                snap = call_ui(resolve_ui_app(self), self._local_timeline_payload)
+                if snap is None:
+                    return
+                query, finished, key, payload = snap
+                if not finished:
+                    hits: set[int] | None = None
+                elif payload is None:
+                    hits = set(scan_index(key, finished))
+                else:
+                    events, key, stamp, turns = payload
+                    hits = set(
+                        matching_indexes(
+                            events,
+                            finished,
+                            key=key,
+                            stamp=stamp,
+                            turns=turns,
+                        )
+                    )
+                if not self._timeline_flight.current(gen):
+                    continue
 
-        def _schedule() -> None:
-            if gen != self._search_gen or not self.is_mounted:
+                def _schedule() -> None:
+                    if not self._timeline_flight.current(gen) or not self.is_mounted:
+                        return
+                    try:
+                        tl = self.query_one("#timeline-list", TimelineTable)
+                    except NoMatches:
+                        return
+                    tl.set_search_hits(query, hits)
+                    self.call_later(self._paint_timeline_search, gen)
+
+                call_ui(resolve_ui_app(self), _schedule)
+                if not self._timeline_flight.current(gen):
+                    continue
                 return
-            try:
-                tl = self.query_one("#timeline-list", TimelineTable)
-            except NoMatches:
-                return
-            tl.set_search_hits(query.strip(), hits)
-            self.call_later(self._paint_timeline_search, gen)
+        finally:
 
-        call_ui(resolve_ui_app(self), _schedule)
+            def _done() -> None:
+                if self._timeline_flight.finish():
+                    self._ensure_timeline_search()
+
+            call_ui(resolve_ui_app(self), _done)
 
     def _paint_timeline_search(self, gen: int) -> None:
-        if gen != self._search_gen or not self.is_mounted:
+        if not self._timeline_flight.current(gen) or not self.is_mounted:
             return
         self._apply_timeline_filters()
 
@@ -2805,14 +2833,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
     @on(Input.Submitted, "#search-input")
     def _on_search_submitted(self, event: Input.Submitted) -> None:
         """Enter applies the filter now and moves focus to the timeline list."""
-        if self._search_debounce is not None:
-            try:
-                self._search_debounce.stop()
-            except Exception:
-                pass
-            self._search_debounce = None
         self._timeline_search = event.value or ""
-        self._start_timeline_search_worker()
+        self._search_debounce.flush(self._apply_debounced_timeline_search)
         try:
             focus_primary_list(self.query_one("#timeline-list", TimelineTable))
         except Exception:
@@ -2980,7 +3002,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
             return
         self._turn_filter = str(val)
         if self._uses_control_data():
-            self._start_control_timeline_scope()
+            self._timeline_flight.bump()
+            self._ensure_timeline_search()
             return
         self._apply_timeline_filters()
 
@@ -3051,7 +3074,8 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
                 sel.value = value
         self._ensure_timeline_tab()
         if self._uses_control_data():
-            self._start_control_timeline_scope()
+            self._timeline_flight.bump()
+            self._ensure_timeline_search()
         else:
             self._apply_timeline_filters()
         self._land_after_turn_step(keep=keep)
