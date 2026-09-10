@@ -19,8 +19,8 @@ from ..models import JsonObject, as_json_object
 # Handshake only. Independent of ``anqa.__version__``.
 # Same major: additive methods and fields; a live owner of that major stays up.
 # A major bump is the only backwards-incompatible change.
-MIN_PROTOCOL_VERSION = "1.0.0"
-PROTOCOL_VERSION = "1.0.0"
+MIN_PROTOCOL_VERSION = "2.0.0"
+PROTOCOL_VERSION = "2.0.0"
 
 SCHEMA_TITLE = "anqa-control"
 SCHEMA_ID = "https://indynull.github.io/anqa/schemas/control.schema.json"

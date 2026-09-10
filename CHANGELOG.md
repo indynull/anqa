@@ -172,7 +172,7 @@ Cursor (`cursor`) are registered.
   stays in the owner log. The owner process does not exit. Opening
   a store-backed catalog row uses `harness:id`, so two OpenCode
   sessions do not share one list key.
-- `protocolVersion` is semver (`1.0.0`), independent of the product
+- `protocolVersion` is semver (`2.0.0`), independent of the product
   version. Same major keeps a live owner; a major bump is the only
   incompatible handshake change.
 - Emacs opens sessions as Org; Neovim opens them as Markdown.

@@ -296,7 +296,7 @@ function M.connect()
   sock:read_start(on_read)
   local version = vim.version()
   M.request("initialize", {
-    protocolVersion = "1.0.0",
+    protocolVersion = "2.0.0",
     clientInfo = {
       name = "Neovim",
       version = string.format("%d.%d.%d", version.major, version.minor, version.patch),

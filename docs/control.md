@@ -56,8 +56,8 @@ anqa -s /path/to/control.sock
 
 ## Framing
 
-JSON-RPC 2.0, protocol version **1.0.0** (`initialize` with
-`protocolVersion: "1.0.0"`). Same major is compatible: a newer
+JSON-RPC 2.0, protocol version **2.0.0** (`initialize` with
+`protocolVersion: "2.0.0"`). Same major is compatible: a newer
 client keeps a live owner of that major. A major bump is the only
 backwards-incompatible change; older clients fail `initialize`. Two
 frames on the same socket:
@@ -75,7 +75,7 @@ The owner accepts either and replies in the same frame the client used.
 
 | Method | Role |
 |--------|------|
-| `initialize` | Handshake (owner reports `protocolVersion` `1.0.0`) |
+| `initialize` | Handshake (owner reports `protocolVersion` `2.0.0`) |
 | `session/list` | Catalog page (see below) |
 | `session/overview` | Meta + turns + notes + event/tool counts (`stats`). Turns include `subagentRuns`. Also `backgroundJobs`, `schedules`, and `workflows` (no log or script bodies). |
 | `session/timeline` | Paged events (`offset`, `limit`, `type`, `kind`, `query`, `promptIndex`, `aroundIndex`, `atIndex`, `contentChars`). Spawn/finish rows include `childSessionId` and finish stats. |

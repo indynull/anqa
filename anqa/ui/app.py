@@ -1058,6 +1058,7 @@ class AnqaApp(App):
     def _delete_sessions_via_control(self, paths: list[Path]) -> JsonObject:
         """Blocking ``session/delete`` against the live owner."""
         from ..control.client import ControlClient
+        from ..control.server import ControlError, is_unknown_method
 
         sock = self._control_socket
         refs = [str(path) for path in paths]
@@ -1072,7 +1073,29 @@ class AnqaApp(App):
             client = ControlClient(sock, client_name="anqa-tui", timeout=HEAVY_RPC_TIMEOUT)
             return await client.session_delete(refs)
 
-        return asyncio.run(_delete())
+        try:
+            return asyncio.run(_delete())
+        except ControlError as exc:
+            if is_unknown_method(exc):
+                self._replace_stale_control_owner()
+                try:
+                    return asyncio.run(_delete())
+                except ControlError as retry:
+                    return {
+                        "deleted": 0,
+                        "requested": len(refs),
+                        "errors": [retry.message],
+                    }
+            return {"deleted": 0, "requested": len(refs), "errors": [exc.message]}
+
+    def _replace_stale_control_owner(self) -> None:
+        """Stop an older owner and start one that speaks this protocol."""
+        from ..control.daemon import ensure_control_daemon
+
+        sock = self._control_socket
+        if sock is None:
+            return
+        ensure_control_daemon(socket_path=sock, traces_path=self.traces_path)
 
     def _rows_from_catalog_wire(self, wire_rows: list[JsonObject]) -> list[tuple[SessionMeta, str]]:
         from ..session.catalog import session_meta_from_catalog_row
