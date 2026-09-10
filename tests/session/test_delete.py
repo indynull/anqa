@@ -46,3 +46,18 @@ def test_delete_sessions_removes_grok_directory(tmp_path: Path) -> None:
     stats = delete_session_dirs([sd])
     assert int(stats["deleted"] or 0) == 1
     assert not sd.exists()
+
+
+def test_delete_sessions_removes_grok_catalog_ref(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Home list delete passes ``grok:<id>``, not the encoded-cwd directory."""
+    host = tmp_path / "sessions"
+    sd = host / "%2Fproj" / "del-sid"
+    sd.mkdir(parents=True)
+    (sd / "summary.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("anqa.harness.grok.default_sessions_root", lambda: host)
+    stats = delete_session_dirs([Path("grok:del-sid")])
+    assert stats.get("errors") == []
+    assert int(stats["deleted"] or 0) == 1
+    assert not sd.exists()

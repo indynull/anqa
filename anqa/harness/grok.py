@@ -202,14 +202,14 @@ class GrokAdapter:
     def load_meta(self, ref: SessionRef | Path | str) -> SessionMeta:
         from ..core import list_meta
 
-        loc = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
+        loc = self._session_dir(ref)
         sid = ref.session_id if isinstance(ref, SessionRef) else loc.name
         return list_meta(self.id, loc, sid)
 
     def parse_timeline(self, ref: SessionRef | Path | str) -> list[TraceEvent]:
         from ..core import timeline_events
 
-        loc = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
+        loc = self._session_dir(ref)
         sid = ref.session_id if isinstance(ref, SessionRef) else loc.name
         return timeline_events(self.id, loc, sid)
 
@@ -227,7 +227,7 @@ class GrokAdapter:
         return watch_hints()
 
     def write_archive(self, ref: SessionRef | Path | str, dest: Path) -> list[str]:
-        return write_directory_archive(SessionRef.path(ref), dest)
+        return write_directory_archive(self._session_dir(ref), dest)
 
     def open_archive(self, src: Path, dest_root: Path) -> SessionRef:
         return open_directory_archive(src, dest_root)
@@ -238,19 +238,19 @@ class GrokAdapter:
     def timeline_stamp(self, ref: SessionRef | Path | str) -> tuple[float, int, int, int]:
         from ..core import store_stamp
 
-        loc = ref.locator if isinstance(ref, SessionRef) else Path(ref).expanduser()
+        loc = self._session_dir(ref)
         sid = ref.session_id if isinstance(ref, SessionRef) else loc.name
         return store_stamp(self.id, loc, sid)
 
     def trace_mtime(self, ref: SessionRef | Path | str) -> float:
         from .grok_parse import session_trace_mtime
 
-        return session_trace_mtime(SessionRef.path(ref))
+        return session_trace_mtime(self._session_dir(ref))
 
     def updates_size(self, ref: SessionRef | Path | str) -> int:
         from .grok_parse import updates_jsonl_size
 
-        return updates_jsonl_size(SessionRef.path(ref))
+        return updates_jsonl_size(self._session_dir(ref))
 
     def scheduler_state(self, state: JsonObject) -> JsonObject | None:
         block = state.get("grok_build.Scheduler")
@@ -265,13 +265,28 @@ class GrokAdapter:
     def delete_session(self, ref: SessionRef | Path | str) -> None:
         from ..session.delete import prune_empty_parents_after_session_delete, rmtree_robust
 
-        path = SessionRef.path(ref)
+        path = self._session_dir(ref)
         if not path.is_dir():
             raise FileNotFoundError(f"grok session not found: {path}")
         parent = path.parent
         rmtree_robust(path)
         roots = self.default_host_roots()
         prune_empty_parents_after_session_delete(parent, stop_at=roots[0] if roots else None)
+
+    def _session_dir(self, ref: SessionRef | Path | str) -> Path:
+        """Directory for *ref* (``SessionRef``, folder, or ``grok:<id>``)."""
+        if isinstance(ref, SessionRef):
+            return Path(ref.locator)
+        text = str(ref)
+        from .ref import catalog_session_key, parse_session_ref_string
+
+        parsed = parse_session_ref_string(catalog_session_key(text))
+        if parsed is None:
+            return Path(text).expanduser()
+        found = self.ref_for_id(parsed[1])
+        if found is None:
+            raise FileNotFoundError(f"grok session not found: {text}")
+        return Path(found.locator)
 
     def reported_completion_ids(self, state: JsonObject) -> set[str]:
         block = state.get("grok_build.ReportedTaskCompletions")

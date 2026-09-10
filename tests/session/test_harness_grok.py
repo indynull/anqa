@@ -236,6 +236,14 @@ def test_bind_locator_and_ref_for_id(tmp_path: Path, monkeypatch) -> None:
     assert adapter.ref_for_id("missing") is None
 
 
+def test_delete_session_accepts_catalog_ref(tmp_path: Path, monkeypatch) -> None:
+    host = tmp_path / "sessions"
+    sess = _write_summary_session(host / "%2Fproj", "host-sid")
+    monkeypatch.setattr("anqa.harness.grok.default_sessions_root", lambda: host)
+    GrokAdapter().delete_session(Path("grok:host-sid"))
+    assert not sess.exists()
+
+
 def test_list_meta_without_event_count_does_not_parse_timeline(tmp_path: Path, monkeypatch) -> None:
     """Catalog list-meta must not walk updates.jsonl for a count."""
     import anqa.harness.grok_parse as parse_mod

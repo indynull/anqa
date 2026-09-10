@@ -122,7 +122,7 @@ def delete_session_dirs(
 
     :returns: Counts and error strings.
     """
-    from ..harness.registry import require_adapter
+    from ..harness.registry import require_adapter, resolve_session_ref
 
     deleted = 0
     errors: list[str] = []
@@ -131,7 +131,9 @@ def delete_session_dirs(
 
     for sd in session_dirs_for_delete(session_dirs):
         try:
-            require_adapter(sd).delete_session(sd)
+            found = resolve_session_ref(str(sd))
+            target = found if found is not None else sd
+            require_adapter(target).delete_session(target)
             deleted += 1
         except FileNotFoundError:
             errors.append(f"missing: {sd}")
