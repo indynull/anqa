@@ -221,6 +221,29 @@ def test_local_access_list_and_missing_session(tmp_path: Path) -> None:
     assert "Review" in written["vocabulary"]
 
 
+def test_local_access_delete_sessions_drops_catalog(tmp_path: Path) -> None:
+    from anqa.session.catalog import SessionCatalogCache
+
+    traces = tmp_path / "traces"
+    sess = traces / "del-me"
+    sess.mkdir(parents=True)
+    (sess / "summary.json").write_text("{}", encoding="utf-8")
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    assert any(str(row.get("sessionId")) == "del-me" for row in cache.get())
+
+    def resolve(ref: str) -> Path | None:
+        if ref in {"del-me", str(sess), "grok:del-me"}:
+            return sess if sess.exists() else None
+        return None
+
+    access = LocalSessionAccess(resolve_session=resolve, list_sessions=cache)
+    stats = access.delete_sessions(["grok:del-me"])
+    assert int(stats["deleted"] or 0) == 1
+    assert not sess.exists()
+    assert all(str(row.get("sessionId")) != "del-me" for row in cache.get())
+
+
 @pytest.mark.asyncio
 async def test_remote_access_session_diff_forwards() -> None:
     """Attached terminal client loads Diff through session/diff."""

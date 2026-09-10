@@ -10,7 +10,7 @@ catalog/timeline stack.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -287,6 +287,28 @@ class LocalSessionAccess:
             return build_session_diff(ref.locator)
         return harness_views.session_diff(ref)
 
+    def delete_sessions(self, sessions: Sequence[str]) -> JsonObject:
+        """Delete native locators and drop those ids from the catalog."""
+        from .delete import delete_session_dirs
+
+        raw = [item.strip() for item in sessions if str(item).strip()]
+        ids: list[str] = []
+        paths: list[Path] = []
+        for item in raw:
+            try:
+                found = self.require_ref(item)
+            except FileNotFoundError:
+                ids.append(Path(item).name)
+                paths.append(Path(item))
+                continue
+            ids.append(found.session_id)
+            paths.append(found.locator)
+        stats = delete_session_dirs(paths)
+        drop = getattr(self._list, "drop_session_ids", None)
+        if callable(drop):
+            drop(ids)
+        return stats
+
     def session_import(self, path: Path | str) -> JsonObject:
         """Open an archive or export and return the catalog ref."""
         from .imports import import_session
@@ -401,6 +423,9 @@ class RemoteSessionAccess:
 
     async def session_import(self, path: str) -> JsonObject:
         return await self._client.session_import(path)
+
+    async def delete_sessions(self, sessions: list[str]) -> JsonObject:
+        return await self._client.session_delete(sessions)
 
     async def session_overview(
         self,

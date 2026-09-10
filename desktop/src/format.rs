@@ -2499,6 +2499,12 @@ pub fn control_down_message(err: &str) -> String {
     }
 }
 
+/// True when the owner has no session for this catalog id.
+#[must_use]
+pub fn is_session_not_found(err: &str) -> bool {
+    err.to_ascii_lowercase().contains("session not found")
+}
+
 /// One TUI-aligned tool input field (HUD inspect, not a JSON dump).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolField {
@@ -2924,6 +2930,9 @@ mod tests {
             "control socket down · run: anqad -d"
         );
         assert!(control_down_message("session not found").contains("session not found"));
+        assert!(is_session_not_found("session not found"));
+        assert!(is_session_not_found("Control error: session not found"));
+        assert!(!is_session_not_found("connection refused"));
     }
 
     #[test]

@@ -169,6 +169,47 @@ def test_catalog_cache_single_flight(tmp_path: Path) -> None:
     assert results == [8, 8, 8, 8]
 
 
+def test_drop_missing_locators_records_removed_ids(tmp_path: Path) -> None:
+    """A gone locator is a catalog revision with that session id removed."""
+    import shutil
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "gone", "Gone")
+    _write_sess(traces, "stay", "Stay")
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    rev = cache.revision
+    shutil.rmtree(one)
+    assert cache.drop_missing_locators() == {"gone": True}
+    delta = cache.delta_since(rev)
+    assert delta is not None
+    _upserts, removed = delta
+    assert removed == ["gone"]
+
+
+def test_apply_fs_catalog_events_drops_deleted_session(tmp_path: Path) -> None:
+    """A vanished session directory leaves the catalog and a list delta."""
+    import shutil
+
+    from anqa.control.daemon import apply_fs_catalog_events
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    _write_sess(traces, "two", "Two")
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache.get(force=True)
+    rev = cache.revision
+    assert rev > 0
+    shutil.rmtree(one)
+    _sessions, _notes, changed = apply_fs_catalog_events(cache, [str(one)], [traces])
+    assert changed.get("one") is True
+    ids = {str(row["sessionId"]) for row in cache.get()}
+    assert ids == {"two"}
+    _ = rev
+
+
 def test_apply_fs_catalog_events_patches_dirty_row(tmp_path: Path) -> None:
     """Watch callback patches the dirty session instead of a full catalog scan."""
     from anqa.control.daemon import apply_fs_catalog_events

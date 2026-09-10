@@ -430,6 +430,7 @@
         "session/diff",
         "session/open",
         "session/import",
+        "session/delete",
         "session/render",
         "notes/list",
         "notes/upsert",
@@ -809,6 +810,49 @@
                 "opened": {
                   "description": "True when the session resolved.",
                   "type": "boolean"
+                }
+              }
+            }
+          },
+          "required": [
+            "params"
+          ]
+        },
+        "session/delete": {
+          "description": "Delete native session locators and drop them from the catalog",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "params": {
+              "title": "session/delete params",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "sessions": {
+                  "description": "Catalog paths (`harness:id`) or locators.",
+                  "type": "array"
+                }
+              },
+              "required": [
+                "sessions"
+              ]
+            },
+            "result": {
+              "title": "session/delete result",
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "deleted": {
+                  "description": "Sessions removed from the store.",
+                  "type": "integer"
+                },
+                "requested": {
+                  "description": "Refs the client sent.",
+                  "type": "integer"
+                },
+                "errors": {
+                  "description": "Per-ref error strings.",
+                  "type": "array"
                 }
               }
             }

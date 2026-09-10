@@ -67,6 +67,7 @@ REQUIRED_METHODS = (
     "session/diff",
     "session/open",
     "session/import",
+    "session/delete",
     "session/render",
     "notes/list",
     "notes/upsert",

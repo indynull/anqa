@@ -3738,7 +3738,11 @@ class BrowserScreen(TabPaneNavigation, ChromeActions):
 
         paths = session_dirs_for_delete([self.session_dir])
         traces_root = getattr(self.app, "traces_path", None)
-        stats = delete_session_dirs(paths, traces_root=traces_root, prune_empty_parents=True)
+        deleter = getattr(self.app, "_delete_sessions_via_control", None)
+        if getattr(self.app, "_control_attached", False) and callable(deleter):
+            stats = deleter(paths)
+        else:
+            stats = delete_session_dirs(paths, traces_root=traces_root, prune_empty_parents=True)
         gone = {str(p) for p in paths}
         app = self.app
         # Drop from home-screen caches while we still hold the app ref.

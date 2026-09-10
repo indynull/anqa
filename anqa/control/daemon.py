@@ -407,6 +407,8 @@ def apply_fs_catalog_events(
                 logger.debug("catalog file-store refresh after FS event failed", exc_info=True)
     for session in sessions:
         list_changed.setdefault(session.name, False)
+    gone = cache.drop_missing_locators()
+    list_changed.update(gone)
     return sessions, notes_sessions, list_changed
 
 

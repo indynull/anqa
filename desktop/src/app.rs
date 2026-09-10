@@ -1980,6 +1980,13 @@ impl Hud {
                         return rail;
                     }
                     Err(e) => {
+                        if crate::format::is_session_not_found(&e.to_string()) {
+                            self.drop_catalog_session(&sid);
+                            self.overview = None;
+                            self.overview_sid.clear();
+                            self.overview_pending.clear();
+                            return fetch_list(true, self.catalog_revision);
+                        }
                         if !quiet {
                             self.overview = None;
                             self.overview_sid.clear();
@@ -4653,6 +4660,16 @@ impl Hud {
                 self.event_marks.clear();
             }
         }
+    }
+
+    fn drop_catalog_session(&mut self, sid: &str) {
+        let key = sid.trim();
+        if key.is_empty() {
+            return;
+        }
+        self.all_sessions.retain(|row| row.session_id != key);
+        self.sessions.retain(|row| row.session_id != key);
+        self.rerank_visible();
     }
 
     fn apply_list(&mut self, listed: Value, quiet: bool) {
@@ -12782,6 +12799,28 @@ mod tests {
             }],
             ..Hud::default()
         }
+    }
+
+    #[test]
+    fn overview_missing_session_drops_the_catalog_row() {
+        let mut hud = hud_with_session();
+        hud.overview_pending = "s1".into();
+        hud.overview_gen = 3;
+        hud.all_sessions.push(SessionRow {
+            session_id: "keep".into(),
+            path: "/tmp/keep".into(),
+            ..SessionRow::default()
+        });
+        let _ = hud.update(Message::OverviewLoaded {
+            gen: 3,
+            sid: "s1".into(),
+            quiet: false,
+            result: Err("session not found".into()),
+        });
+        assert!(hud.overview_pending.is_empty());
+        assert!(hud.overview_sid.is_empty());
+        assert!(hud.all_sessions.iter().all(|r| r.session_id != "s1"));
+        assert!(hud.all_sessions.iter().any(|r| r.session_id == "keep"));
     }
 
     #[test]

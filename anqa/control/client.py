@@ -517,6 +517,11 @@ class ControlClient:
         result = await self.request("session/import", {"path": path})
         return as_json_object(result) if isinstance(result, dict) else {}
 
+    async def session_delete(self, sessions: list[str]) -> JsonObject:
+        """Call ``session/delete`` for catalog refs or locators."""
+        result = await self.request("session/delete", {"sessions": list(sessions)})
+        return as_json_object(result) if isinstance(result, dict) else {}
+
 
 async def listen_control_notifications(
     socket_path: Path,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -397,6 +398,8 @@ def list_refresh_delta(
         str(row.get("sessionId") or "").strip()
         for row in current
         if str(row.get("path") or "").strip() in drop
+        or str(row.get("locator") or "").strip() in drop
+        or str(row.get("sessionId") or "").strip() in drop
     ]
     for sid in removed_ids:
         if sid:
@@ -930,6 +933,7 @@ class SessionCatalogCache:
             _rows, changed = self.refresh_rows(dirs)
         if files:
             changed.update(self.refresh_file_store(files))
+        changed.update(self.drop_missing_locators())
         return changed
 
     def drop_subagent_rows(self) -> list[JsonObject]:
@@ -973,6 +977,73 @@ class SessionCatalogCache:
             self._mono = self._time.monotonic()
             self._bump_locked(removed=removed_ids)
         return list(rows)
+
+    def drop_missing_locators(self) -> dict[str, bool]:
+        """Remove rows whose locator is gone. Return session id → list-changed."""
+        with self._lock:
+            if self._building or self._rows is None:
+                return {}
+            current = list(self._rows)
+            snap_rev = self._revision
+        drop: set[str] = set()
+        removed_ids: list[str] = []
+        for row in current:
+            loc = str(row.get("locator") or "").strip()
+            if not loc or Path(loc).exists():
+                continue
+            sid = str(row.get("sessionId") or "").strip()
+            drop.add(loc)
+            path = str(row.get("path") or "").strip()
+            if path:
+                drop.add(path)
+            if sid:
+                drop.add(sid)
+                removed_ids.append(sid)
+        if not drop:
+            return {}
+        rows = [
+            row
+            for row in current
+            if str(row.get("path") or "").strip() not in drop
+            and str(row.get("locator") or "").strip() not in drop
+            and str(row.get("sessionId") or "").strip() not in drop
+        ]
+        changed = {sid: True for sid in removed_ids if sid}
+        with self._lock:
+            if self._building or self._revision != snap_rev:
+                return changed
+            self._install_rows_locked(rows)
+            self._mono = self._time.monotonic()
+            self._bump_locked(removed=removed_ids)
+        return changed
+
+    def drop_session_ids(self, session_ids: Sequence[str]) -> dict[str, bool]:
+        """Remove catalog rows for *session_ids*. Return those that were listed."""
+        wanted = {sid.strip() for sid in session_ids if sid.strip()}
+        if not wanted:
+            return {}
+        with self._lock:
+            if self._building or self._rows is None:
+                return {}
+            current = list(self._rows)
+            snap_rev = self._revision
+        removed_ids = [
+            str(row.get("sessionId") or "").strip()
+            for row in current
+            if str(row.get("sessionId") or "").strip() in wanted
+        ]
+        if not removed_ids:
+            return {}
+        drop = set(removed_ids)
+        rows = [row for row in current if str(row.get("sessionId") or "").strip() not in drop]
+        changed = {sid: True for sid in removed_ids}
+        with self._lock:
+            if self._building or self._revision != snap_rev:
+                return changed
+            self._install_rows_locked(rows)
+            self._mono = self._time.monotonic()
+            self._bump_locked(removed=removed_ids)
+        return changed
 
     def list_for_rpc(
         self,

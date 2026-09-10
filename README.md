@@ -308,6 +308,8 @@ palette only. [Emacs](#emacs) and
 ## Control
 
 `anqad` owns the per-user Unix socket. The four clients attach.
+Deleting a session from the terminal list goes through that owner, so
+the desktop palette drops the row instead of opening a missing session.
 
 ```bash
 anqad -d

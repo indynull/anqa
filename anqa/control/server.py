@@ -907,6 +907,24 @@ class ControlServer:
         after_send.append((NOTIFY_SESSION_CHANGED, {"sessionId": session_id, "listChanged": True}))
         return result
 
+    @_rpc("session/delete")
+    async def _rpc_session_delete(
+        self, params: JsonObject, after_send: list[tuple[str, JsonObject]]
+    ) -> JsonValue:
+        raw = params.get("sessions")
+        sessions = [json_as_str(item) for item in raw] if isinstance(raw, list) else []
+        sessions = [item for item in sessions if item]
+        if not sessions:
+            raise ControlError(-32602, "sessions is required")
+
+        def _delete() -> JsonObject:
+            return self._access.delete_sessions(sessions)
+
+        async with self._heavy_sem:
+            result = await asyncio.to_thread(_delete)
+        after_send.append((NOTIFY_SESSION_CHANGED, {"sessionId": "", "listChanged": True}))
+        return result
+
     @_rpc("notes/list")
     async def _rpc_notes_list(
         self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]

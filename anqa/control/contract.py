@@ -588,6 +588,23 @@ METHODS: tuple[MethodSpec, ...] = (
         ),
     ),
     MethodSpec(
+        name="session/delete",
+        role="Delete native session locators and drop them from the catalog",
+        params=(
+            FieldSpec(
+                "sessions",
+                "Catalog paths (`harness:id`) or locators.",
+                required=True,
+                json_type="array",
+            ),
+        ),
+        result=(
+            FieldSpec("deleted", "Sessions removed from the store.", json_type="integer"),
+            FieldSpec("requested", "Refs the client sent.", json_type="integer"),
+            FieldSpec("errors", "Per-ref error strings.", json_type="array"),
+        ),
+    ),
+    MethodSpec(
         name="session/render",
         role="Project a document (`format`: below)",
         params=(

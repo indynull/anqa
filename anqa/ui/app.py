@@ -1055,6 +1055,25 @@ class AnqaApp(App):
 
         return asyncio.run(_run())
 
+    def _delete_sessions_via_control(self, paths: list[Path]) -> JsonObject:
+        """Blocking ``session/delete`` against the live owner."""
+        from ..control.client import ControlClient
+
+        sock = self._control_socket
+        refs = [str(path) for path in paths]
+        if sock is None:
+            return {
+                "deleted": 0,
+                "requested": len(refs),
+                "errors": ["control socket missing"],
+            }
+
+        async def _delete() -> JsonObject:
+            client = ControlClient(sock, client_name="anqa-tui", timeout=HEAVY_RPC_TIMEOUT)
+            return await client.session_delete(refs)
+
+        return asyncio.run(_delete())
+
     def _rows_from_catalog_wire(self, wire_rows: list[JsonObject]) -> list[tuple[SessionMeta, str]]:
         from ..session.catalog import session_meta_from_catalog_row
 
@@ -1924,7 +1943,12 @@ class AnqaApp(App):
         from ..session.delete import delete_session_dirs, session_dirs_for_delete
 
         paths = session_dirs_for_delete(targets)
-        stats = delete_session_dirs(paths, traces_root=self.traces_path, prune_empty_parents=True)
+        if self._control_socket is not None and self._control_attached:
+            stats = self._delete_sessions_via_control(paths)
+        else:
+            stats = delete_session_dirs(
+                paths, traces_root=self.traces_path, prune_empty_parents=True
+            )
         gone = {str(p) for p in paths}
 
         def _refresh() -> None:
