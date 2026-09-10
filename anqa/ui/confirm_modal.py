@@ -5,15 +5,14 @@ from __future__ import annotations
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from . import text as U
 from .i18n import t
-from .quit_actions import QuitActions
+from .quit_actions import Modal
 
 
-class DiscardConfirmModal(QuitActions, ModalScreen[bool]):
+class DiscardConfirmModal(Modal[bool]):
     """Ask whether to discard edits. Result ``True`` = discard and leave."""
 
     BINDINGS = [

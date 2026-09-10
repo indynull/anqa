@@ -9,14 +9,13 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.message import Message
-from textual.screen import ModalScreen
 from textual.widgets import Button, DirectoryTree, Input, Static, Tree
 from textual.widgets.directory_tree import DirEntry
 
 from ..session.imports import looks_like_import_source
 from .bindings import MODAL_CANCEL_QUIT
 from .i18n import t
-from .quit_actions import QuitActions
+from .quit_actions import Modal
 
 _SKIP_DIR_NAMES = frozenset({".git", "node_modules", "__pycache__", ".venv", "venv", "target"})
 
@@ -108,7 +107,7 @@ class ImportSourceTree(DirectoryTree):
             self.post_message(self.PathChanged(Path(self.path)))
 
 
-class ImportPathModal(QuitActions, ModalScreen[str | None]):
+class ImportPathModal(Modal[str | None]):
     """Pick an import source from the tree, or type a path."""
 
     BINDINGS = [
@@ -144,11 +143,6 @@ class ImportPathModal(QuitActions, ModalScreen[str | None]):
 
     def _set_here(self, path: Path) -> None:
         self.query_one("#import-path-here", Static).update(str(path))
-
-    def action_cancel(self) -> None:
-        from .bindings import dismiss_after_blur
-
-        dismiss_after_blur(self, None)
 
     def action_commit(self) -> None:
         self._commit()

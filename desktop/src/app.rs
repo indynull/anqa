@@ -2206,8 +2206,8 @@ impl Hud {
             }
             Message::X11Focus { xid, attempt } => self.after_x11_focus(xid, attempt),
             Message::WindowFocus(on) => self.on_window_focus(on),
-            Message::Hide => self.on_escape(),
-            Message::LeaveInput => Self::blur_text_inputs(),
+            Message::Hide => self.dismiss_top(false),
+            Message::LeaveInput => self.dismiss_top(true),
             Message::SessionsHome => self.go_sessions_home(),
             Message::ToggleHelp => {
                 if self.typing_notes {
@@ -6583,38 +6583,59 @@ impl Hud {
         }
     }
 
+    fn layer_is_live(&self, layer: crate::dismiss::Layer) -> bool {
+        use crate::dismiss::Layer;
+        match layer {
+            Layer::Tags => self.tag_open,
+            Layer::Help => self.help_open,
+            Layer::Context => self.context.is_some(),
+            Layer::Timeline => self.timeline_open.is_some() || self.workflow_inspect_id.is_some(),
+            Layer::Compose => self.tab == Tab::Notes && self.composing_note(),
+            Layer::Parent => !self.parent_stack.is_empty(),
+            Layer::Palette => icedtea::window::should_hide(
+                icedtea::window::HidePolicy::Escape,
+                icedtea::window::HideEvent::Escape,
+                false,
+            ),
+        }
+    }
+
+    fn dismiss_layer(&mut self, layer: crate::dismiss::Layer) -> Task<Message> {
+        use crate::dismiss::Layer;
+        match layer {
+            Layer::Tags => {
+                self.close_tags();
+                Task::none()
+            }
+            Layer::Help => {
+                self.go_help(false);
+                Task::none()
+            }
+            Layer::Context => {
+                self.go_context(false);
+                Task::none()
+            }
+            Layer::Timeline => self.close_timeline_detail(),
+            Layer::Compose => self.leave_note_compose(),
+            Layer::Parent => self.return_to_parent(),
+            Layer::Palette => self.hide_palette(),
+        }
+    }
+
+    /// Pop the front-most live layer. A captured field only blurs when the
+    /// top layer is not a transient overlay (help, tags, context menu).
+    fn dismiss_top(&mut self, from_field: bool) -> Task<Message> {
+        let Some(layer) = crate::dismiss::Layer::top(|layer| self.layer_is_live(layer)) else {
+            return Task::none();
+        };
+        if layer.is_overlay() || !from_field {
+            return self.dismiss_layer(layer);
+        }
+        Self::blur_text_inputs()
+    }
+
     fn on_escape(&mut self) -> Task<Message> {
-        if self.tag_open {
-            self.close_tags();
-            return Task::none();
-        }
-        if self.help_open {
-            self.go_help(false);
-            return Task::none();
-        }
-        if self.context.is_some() {
-            self.go_context(false);
-            return Task::none();
-        }
-        // Full-pane event detail → list at the current event before hide.
-        if self.tab == Tab::Timeline && self.timeline_open.is_some() {
-            return self.close_timeline_detail();
-        }
-        if self.tab == Tab::Notes && self.composing_note() {
-            return self.leave_note_compose();
-        }
-        if !self.parent_stack.is_empty() {
-            return self.return_to_parent();
-        }
-        // Overlay: Escape hides. hide_palette no-ops in window mode.
-        if icedtea::window::should_hide(
-            icedtea::window::HidePolicy::Escape,
-            icedtea::window::HideEvent::Escape,
-            false,
-        ) {
-            return self.hide_palette();
-        }
-        Task::none()
+        self.dismiss_top(false)
     }
 
     fn key_is(&self, id: &str, default: &str, key: &Key, modifiers: KeyMods) -> bool {
@@ -7597,9 +7618,9 @@ fn interesting_hud_event(event: Event, status: event::Status, id: window::Id) ->
             if is_list_nav_key(kev) || is_pane_tab(kev) {
                 return Some(Message::RawEvent(event));
             }
-            // A focused field captures Escape. Leave the field first so the
-            // next Escape can hide (or close help / detail). Ignored Escape
-            // still goes through chrome → Hide → on_escape.
+            // A focused field captures Escape. LeaveInput pops a transient
+            // overlay (help, tags, menu) or blurs the field. Ignored Escape
+            // still goes through chrome → Hide → dismiss_top.
             if status == event::Status::Captured {
                 if let keyboard::Event::KeyPressed {
                     key: Key::Named(Named::Escape),
@@ -8397,6 +8418,54 @@ mod tests {
         assert_eq!(hud.active, 1, "j is swallowed while help is open");
         let _ = hud.on_key(Key::Named(Named::Escape), Modifiers::empty());
         assert!(!hud.help_open());
+    }
+
+    #[test]
+    fn captured_escape_closes_help_not_the_field() {
+        let mut hud = Hud {
+            visible: true,
+            help_open: true,
+            ..Hud::default()
+        };
+        let msg = interesting_hud_event(
+            escape_pressed(),
+            event::Status::Captured,
+            window::Id::unique(),
+        );
+        assert!(matches!(msg, Some(Message::LeaveInput)));
+        let _ = hud.update(msg.expect("captured Escape"));
+        assert!(
+            !hud.help_open(),
+            "help must close when the sheet captured Esc"
+        );
+        assert!(hud.visible);
+    }
+
+    #[test]
+    fn captured_escape_closes_tags_not_the_field() {
+        let mut hud = Hud {
+            visible: true,
+            tag_open: true,
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::LeaveInput);
+        assert!(!hud.tag_open());
+        assert!(hud.visible);
+    }
+
+    #[test]
+    fn escape_closes_workflow_inspect_before_hiding_hud() {
+        let mut hud = Hud {
+            visible: true,
+            tab: Tab::Timeline,
+            workflow_inspect_id: Some("wf-disk".into()),
+            ..Hud::default()
+        };
+        let _ = hud.update(Message::Hide);
+        assert!(hud.workflow_inspect_id().is_none());
+        assert!(hud.visible, "first Esc leaves the HUD up");
+        let _ = hud.update(Message::Hide);
+        assert!(!hud.visible);
     }
 
     #[test]

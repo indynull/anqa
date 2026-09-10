@@ -7,12 +7,12 @@ from contextlib import suppress
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import ModalScreen, Screen
+from textual.screen import Screen
 from textual.widgets import Button
 
 from .. import text as U
 from ..i18n import t
-from ..quit_actions import QuitActions
+from ..quit_actions import Modal
 from ..selectable_static import SelectableStatic
 from ..text import help_markup as _help_markup
 
@@ -30,7 +30,7 @@ def notify_help(screen: Screen, markup: str | None = None) -> None:
     screen.app.push_screen(HelpModal(markup=markup))
 
 
-class HelpModal(QuitActions, ModalScreen[None]):
+class HelpModal(Modal[None]):
     """Full help text in a centered panel (Esc, ?, Enter, or Close).
 
     Sized with % / 1fr so the panel tracks terminal resize fluidly.

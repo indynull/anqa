@@ -9,19 +9,18 @@ from rich.text import Text
 from textual import on, work
 from textual.app import ComposeResult
 from textual.containers import Container, Horizontal
-from textual.screen import ModalScreen
 from textual.widgets import Button, Static
 
 from .. import text as U
 from ..bindings import FORM_SAVE
 from ..i18n import join_ui, t
-from ..quit_actions import QuitActions
+from ..quit_actions import Modal
 from .activity_bar import ActivityBar
 
 logger = logging.getLogger(__name__)
 
 
-class SelfTestModal(QuitActions, ModalScreen[bool]):
+class SelfTestModal(Modal[bool]):
     """Run config home, catalog, and HUD seat checks."""
 
     BINDINGS = list(FORM_SAVE)

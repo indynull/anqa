@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.widgets import Button, Select, Static
 
 from ..session.export_spec import (
@@ -14,7 +13,7 @@ from ..session.export_spec import (
 )
 from .forms import select_is_blank, select_null
 from .i18n import t
-from .quit_actions import QuitActions
+from .quit_actions import Modal
 
 
 def _profile_label(spec: ExportSpec) -> str:
@@ -23,7 +22,7 @@ def _profile_label(spec: ExportSpec) -> str:
     return f"{name}  ·  {', '.join(bits)}"
 
 
-class ExportProfileModal(QuitActions, ModalScreen[str | None]):
+class ExportProfileModal(Modal[str | None]):
     """Choose an export profile id; dismiss ``None`` on cancel."""
 
     def __init__(self, *, profiles: dict[str, ExportSpec] | None = None, **kwargs) -> None:
@@ -51,11 +50,6 @@ class ExportProfileModal(QuitActions, ModalScreen[str | None]):
             with Horizontal(id="export-profile-buttons", classes="modal-footer"):
                 yield Button(t("export-profile-export"), variant="primary", id="export-profile-ok")
                 yield Button(t("ui-cancel"), id="export-profile-cancel")
-
-    def action_cancel(self) -> None:
-        from .bindings import dismiss_after_blur
-
-        dismiss_after_blur(self, None)
 
     def _commit(self) -> None:
         sel = self.query_one("#export-profile-select", Select)

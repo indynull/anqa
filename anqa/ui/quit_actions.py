@@ -1,6 +1,11 @@
-"""Quit action mixin for screens/modals (avoids circular imports with bindings)."""
+"""Quit action and product modal base (avoids circular imports with bindings)."""
 
 from __future__ import annotations
+
+from textual.binding import Binding
+from textual.screen import ModalScreen
+
+from . import text as U
 
 
 class QuitActions:
@@ -17,3 +22,20 @@ class QuitActions:
             result = aq()
             if hasattr(result, "__await__"):
                 await result
+
+
+MODAL_CANCEL_QUIT: tuple[Binding, ...] = (
+    Binding("escape", "cancel", U.bind_cancel(), show=True, id="overlay.hide"),
+    Binding("q", "quit", U.bind_quit(), show=True, id="app.quit"),
+)
+
+
+class Modal[T](QuitActions, ModalScreen[T]):
+    """Product modal. Esc dismisses. Subclass ``BINDINGS`` must keep overlay.hide."""
+
+    BINDINGS = list(MODAL_CANCEL_QUIT)
+
+    def action_cancel(self) -> None:
+        from .bindings import dismiss_after_blur
+
+        dismiss_after_blur(self, None)

@@ -6,7 +6,6 @@ from collections.abc import Sequence
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical
-from textual.screen import ModalScreen
 from textual.suggester import Suggester
 from textual.widgets import Button, Input, Label, Static
 
@@ -14,7 +13,7 @@ from ...tags import parse_tag
 from .. import text as U
 from ..bindings import FORM_SAVE
 from ..i18n import t
-from ..quit_actions import QuitActions
+from ..quit_actions import Modal
 
 
 class TagSuggester(Suggester):
@@ -41,7 +40,7 @@ class TagSuggester(Suggester):
         return None
 
 
-class TagsModal(QuitActions, ModalScreen[list[str] | None]):
+class TagsModal(Modal[list[str] | None]):
     """Edit a working tag set. Save returns the list; Esc returns None."""
 
     BINDINGS = list(FORM_SAVE)
@@ -138,6 +137,3 @@ class TagsModal(QuitActions, ModalScreen[list[str] | None]):
         if draft:
             self._add_draft()
         self.dismiss(list(self._working))
-
-    def action_cancel(self) -> None:
-        self.dismiss(None)

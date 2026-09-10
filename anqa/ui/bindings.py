@@ -16,6 +16,7 @@ from textual.widget import Widget
 
 from . import text as U
 from .i18n import t
+from .quit_actions import MODAL_CANCEL_QUIT
 from .tab_panes import tab_nav_bindings
 from .widgets.help_modal import notify_help
 
@@ -160,10 +161,6 @@ CAPABILITY_PICKER: tuple[Binding, ...] = (
     _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
     _b("s,space", "toggle_select", U.bind_select(), id="list.select", show=True),
     _ctrl_s("done", U.bind_done(), id="edit.save", show=True),
-)
-MODAL_CANCEL_QUIT: tuple[Binding, ...] = (
-    _b("escape", "cancel", U.bind_cancel(), id="overlay.hide", show=True),
-    _b("q", "quit", U.bind_quit(), id="app.quit", show=True),
 )
 FORM_SAVE: tuple[Binding, ...] = MODAL_CANCEL_QUIT + (
     _ctrl_s("save", U.bind_save(), id="edit.save", show=True),

@@ -9,7 +9,6 @@ from rich.markup import escape as rich_escape
 from rich.text import Text
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.screen import ModalScreen
 from textual.widgets import Button, Label, Select, SelectionList, Static, TextArea
 
 from ...notes import (
@@ -26,7 +25,7 @@ from ..bindings import FORM_SAVE
 from ..forms import select_is_blank, select_null, selection_list_selected_ids
 from ..i18n import join_ui, t
 from ..panel_render import content_block
-from ..quit_actions import QuitActions
+from ..quit_actions import Modal
 
 _PREVIEW_MAX = 60
 _DEFAULT_FIELD_FTL = {
@@ -95,7 +94,7 @@ def _field_widget_id(field_id: str) -> str:
     return f"note-field-{field_id}"
 
 
-class NotesModal(QuitActions, ModalScreen):
+class NotesModal(Modal[tuple[str, NoteEntry | str] | None]):
     """Modal dialog for one operator note (create or edit; schema-driven fields)."""
 
     BINDINGS = list(FORM_SAVE)
@@ -209,11 +208,6 @@ class NotesModal(QuitActions, ModalScreen):
             return ""
         return str(raw).strip()
 
-    def action_cancel(self) -> None:
-        from ..bindings import dismiss_after_blur
-
-        dismiss_after_blur(self, None)
-
     def action_save(self) -> None:
         self._commit_save()
 
@@ -260,7 +254,7 @@ class NotesModal(QuitActions, ModalScreen):
             self.dismiss(None)
 
 
-class NotesPickModal(QuitActions, ModalScreen):
+class NotesPickModal(Modal[NoteEntry | None]):
     """Minimal picker when several operator notes exist."""
 
     def __init__(self, notes: list[NoteEntry], **kwargs) -> None:
@@ -283,11 +277,6 @@ class NotesPickModal(QuitActions, ModalScreen):
             with Horizontal(id="pick-note-buttons", classes="modal-footer"):
                 yield Button(U.done(), variant="primary", id="pick-note-ok")
                 yield Button(U.cancel(), id="pick-note-cancel")
-
-    def action_cancel(self) -> None:
-        from ..bindings import dismiss_after_blur
-
-        dismiss_after_blur(self, None)
 
     def _commit_pick(self) -> None:
         sel = self.query_one("#pick-note-select", Select)
