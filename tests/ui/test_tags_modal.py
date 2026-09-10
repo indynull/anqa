@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 from anqa.tags import parse_tag, shared_tags
 from anqa.ui.i18n import setup_i18n
@@ -10,6 +12,8 @@ from textual.app import App, ComposeResult
 from textual.widgets import Input, Static
 
 from .pilot_helpers import static_plain, wait_until
+
+_APP_TCSS = Path(__file__).resolve().parents[2] / "anqa" / "ui" / "app.tcss"
 
 
 def test_shared_tags_intersection() -> None:
@@ -24,6 +28,8 @@ async def test_tag_suggester_skips_current() -> None:
 
 
 class _TagApp(App):
+    CSS_PATH = _APP_TCSS
+
     def compose(self) -> ComposeResult:
         yield Static("main")
 
@@ -106,3 +112,28 @@ async def test_tag_input_lists_vocabulary_matches() -> None:
         app.screen.on_input_changed(Input.Changed(field, "u"))
         hint = app.screen.query_one("#tags-hints", Static)
         assert static_plain(hint) == "ui"
+
+
+@pytest.mark.asyncio
+async def test_tags_modal_stays_compact_on_a_tall_terminal() -> None:
+    """Chips plus a field: the dialog must not stretch with the terminal."""
+    setup_i18n("en")
+    heights: list[int] = []
+    for rows in (24, 40):
+        app = _TagApp()
+        async with app.run_test(size=(80, rows)) as pilot:
+            app.push_screen(TagsModal(current=["anqa"], vocabulary=["anqa", "ui"]))
+            await wait_until(
+                pilot,
+                lambda: (
+                    isinstance(app.screen, TagsModal)
+                    and bool(list(app.screen.query("#tags-input")))
+                ),
+                description="TagsModal input mounted",
+            )
+            box = app.screen.query_one("#modal-container")
+            actions = app.screen.query_one("#tags-actions")
+            heights.append(box.size.height)
+            assert actions.size.height <= 3
+    assert heights[0] == heights[1]
+    assert heights[0] <= 16
