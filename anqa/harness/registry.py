@@ -194,6 +194,7 @@ def resolve_session_ref(
     reference: str,
     *,
     path_resolve: PathResolver | None = None,
+    walk_adapters: bool = True,
 ) -> SessionRef | None:
     """Map a control ``session`` argument to a :class:`SessionRef`.
 
@@ -229,6 +230,8 @@ def resolve_session_ref(
         )
         if cached is not None:
             return cached
+        if not walk_adapters:
+            return None
         return found.ref_for_id(sid)
     cached = _from_cache(raw)
     if cached is not None:
@@ -236,6 +239,8 @@ def resolve_session_ref(
     candidate = Path(raw).expanduser()
     if candidate.is_dir() or candidate.is_file():
         return ref_from_path(candidate)
+    if not walk_adapters:
+        return None
     for item in adapters():
         hit = item.ref_for_id(raw)
         if hit is not None:

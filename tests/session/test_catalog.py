@@ -261,3 +261,19 @@ def test_include_host_for_explicit_store() -> None:
 
     assert include_host_for_explicit_store(None) is None
     assert include_host_for_explicit_store(Path("/tmp/store")) is False
+
+
+def test_notes_require_session_skips_adapter_ref_for_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Notes resolve must not walk every adapter on a harness:id miss."""
+    from anqa.harness import registry
+    from anqa.session.access import LocalSessionAccess
+
+    def boom(*_a: object, **_k: object) -> object:
+        raise AssertionError("ref_for_id must not run")
+
+    impl = registry.adapter("grok")
+    assert impl is not None
+    monkeypatch.setattr(impl, "ref_for_id", boom)
+    access = LocalSessionAccess(resolve_session=lambda _ref: None)
+    with pytest.raises(FileNotFoundError):
+        access.require_session("grok:missing-id")

@@ -749,6 +749,23 @@ class ControlServer:
         async with self._heavy_sem:
             return await asyncio.to_thread(_run)
 
+    async def _notes_call(
+        self,
+        ref: str,
+        fn: Callable[..., JsonObject],
+        *args: object,
+        **kwargs: object,
+    ) -> JsonObject:
+        """Notes I/O off the event loop. Does not take the catalog semaphore."""
+
+        def _run() -> JsonObject:
+            try:
+                return fn(*args, **kwargs)
+            except FileNotFoundError as exc:
+                raise ControlError(404, "session not found", {"session": ref}) from exc
+
+        return await asyncio.to_thread(_run)
+
     async def _dispatch(
         self,
         method: str,
@@ -942,7 +959,7 @@ class ControlServer:
         self, params: JsonObject, _after_send: list[tuple[str, JsonObject]]
     ) -> JsonValue:
         ref = self._session_ref(params)
-        return await self._access_call(ref, self._access.notes_list, ref)
+        return await self._notes_call(ref, self._access.notes_list, ref)
 
     @_rpc("notes/upsert")
     async def _rpc_notes_upsert(
@@ -955,7 +972,7 @@ class ControlServer:
         session = self._session(params)
         note = _note_from_params(as_json_object(note_raw))
         rev = json_as_str(params.get("expectedRevision"))
-        result = await self._access_call(
+        result = await self._notes_call(
             ref,
             self._access.notes_upsert,
             ref,
@@ -977,7 +994,7 @@ class ControlServer:
         ref = self._session_ref(params)
         session = self._session(params)
         rev = json_as_str(params.get("expectedRevision"))
-        result = await self._access_call(
+        result = await self._notes_call(
             ref,
             self._access.notes_delete,
             ref,
