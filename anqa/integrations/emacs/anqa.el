@@ -9,8 +9,8 @@
 ;; View a running Anqa session as an Org buffer and edit operator notes
 ;; without making the generated trace projection writable.
 ;;
-;; Requires a live control process (``anqad -d`` or TUI auto-start)
-;; on the same Unix socket as other clients (HUD, Vim).
+;; Starts ``anqad -d`` when the control socket is missing. Same socket
+;; as the terminal app, desktop palette, and Neovim.
 
 ;;; Code:
 
@@ -25,7 +25,11 @@
   :group 'tools)
 
 (defcustom anqa-executable "anqa"
-  "Executable used by `anqa-start'."
+  "Unused TUI name kept for older configs. `anqa-start' runs `anqa-daemon-executable'."
+  :type 'string)
+
+(defcustom anqa-daemon-executable "anqad"
+  "Control owner started when the socket is missing (`anqad -d')."
   :type 'string)
 
 (defcustom anqa-control-socket nil
@@ -181,32 +185,26 @@ A connection whose peer died is dropped so the next command reconnects."
   anqa--connection)
 
 (defun anqa--wait-for-socket (process)
-  "Wait for the control socket owned by PROCESS."
+  "Wait for the control socket. PROCESS may exit after `anqad -d' detaches."
   (let ((deadline (+ (float-time) anqa-request-timeout)))
-    (while (and (process-live-p process)
-                (not (file-exists-p (anqa--socket-path)))
+    (while (and (not (file-exists-p (anqa--socket-path)))
                 (< (float-time) deadline))
-      (accept-process-output process 0.05))
+      (if (and process (process-live-p process))
+          (accept-process-output process 0.05)
+        (sit-for 0.05)))
     (unless (file-exists-p (anqa--socket-path))
       (user-error "Anqa did not create its control socket"))))
 
-(defun anqa-start (&optional session prompt-index)
-  "Start the TUI for SESSION and optionally select PROMPT-INDEX."
+(defun anqa-start (&optional _session _prompt-index)
+  "Detach-start `anqad' when the control socket is missing.
+SESSION and PROMPT-INDEX are ignored: the owner lists every catalog store."
   (interactive)
   (let* ((socket (anqa--socket-path))
-         (args (append
-                (when session (list "--path" (expand-file-name session)))
-                (list "--control-socket" socket)
-                (when prompt-index
-                  (list "--prompt-index" (number-to-string prompt-index)))))
-         (buffer (apply #'make-term "anqa-live" anqa-executable nil args))
-         (process (get-buffer-process buffer)))
+         (args (list "-d" "-s" socket))
+         (buffer (get-buffer-create "*anqad*"))
+         (process (apply #'start-process "anqad" buffer anqa-daemon-executable args)))
     (setq anqa--terminal-buffer buffer)
     (set-process-query-on-exit-flag process nil)
-    (with-current-buffer buffer
-      (term-mode)
-      (term-char-mode))
-    (display-buffer buffer '(display-buffer-at-bottom (window-height . 14)))
     (anqa--wait-for-socket process)
     buffer))
 
@@ -248,8 +246,8 @@ A TUI taking a stale socket over needs a moment before it accepts clients."
           (anqa-connect)
         (error
          (anqa--drop-connection)
-         ;; A socket file outliving its TUI refuses connections; starting the
-         ;; TUI again takes the stale socket over.
+         ;; A socket file outliving its owner refuses connections; starting
+         ;; anqad again takes the stale socket over.
          (unless (and directory (anqa--connection-refused-p err))
            (signal (car err) (cdr err)))
          (anqa-start directory nil)
@@ -410,12 +408,18 @@ Leading and trailing blank lines are part of the value."
           :createdAt ,created-at
           :updatedAt ,updated-at)))))
 
-(defun anqa--render-session (session)
-  "Request the Org projection for SESSION."
-  (anqa--request
-   (anqa--connection-for-session session)
-   "session/render"
-   `(:session ,session)))
+(defun anqa--render-session (session &optional bodies prompt-index)
+  "Request the Org projection for SESSION.
+BODIES nil (the default) is turns and notes only. PROMPT-INDEX limits
+the document to one prompt (used to expand a turn)."
+  (let ((params (list :session session :format "org")))
+    (setq params (plist-put params :bodies (if bodies t :json-false)))
+    (when prompt-index
+      (setq params (plist-put params :promptIndex prompt-index)))
+    (anqa--request
+     (anqa--connection-for-session session)
+     "session/render"
+     params)))
 
 (defun anqa--do-refresh ()
   "Reload the projection without prompting (caller checks dirty state).
@@ -612,12 +616,12 @@ argument, prompt for QUERY first."
       (anqa-open-session path))))
 
 (defun anqa-open-session (session &optional prompt-index)
-  "Open SESSION as an Org buffer and select PROMPT-INDEX in the TUI."
+  "Open SESSION as an Org outline (turns and notes; expand a turn with C-c C-e).
+When a TUI is attached, PROMPT-INDEX is selected there via `session/open'."
   (interactive (list (read-string "Session path or id: ") nil))
   (let* ((reference (anqa--normalize-session-reference session))
          (connection (anqa--connection-for-session reference))
-         (result (anqa--request
-                  connection "session/render" `(:session ,reference)))
+         (result (anqa--render-session reference nil))
          (session-id (plist-get result :sessionId))
          (name (format "*anqa:%s*" session-id))
          (existing (get-buffer name))
@@ -640,6 +644,52 @@ argument, prompt for QUERY first."
      `(:session ,reference :promptIndex ,prompt-index))
     (pop-to-buffer buffer)
     buffer))
+
+(defun anqa--prompt-subtree-bounds ()
+  "Return (begin . end) of the prompt heading at point."
+  (save-excursion
+    (org-back-to-heading t)
+    (while (and (> (org-current-level) 1) (org-up-heading-safe)))
+    (unless (org-entry-get nil "ANQA_PROMPT_INDEX" nil)
+      (user-error "Point is not inside a prompt"))
+    (cons (point) (save-excursion (org-end-of-subtree t t) (point)))))
+
+(defun anqa--extract-prompt-section (text prompt-index)
+  "Return the `* Prompt PROMPT-INDEX' section from TEXT, or nil."
+  (let* ((needle (format "* Prompt %s\n" prompt-index))
+         (start (string-match (regexp-quote needle) text)))
+    (when start
+      (let* ((rest (substring text start))
+             (next (string-match "\n\\* Prompt " rest 1)))
+        (if next (substring rest 0 (1+ next)) rest)))))
+
+(defun anqa-expand-turn-at-point ()
+  "Load transcript bodies for the prompt at point."
+  (interactive)
+  (anqa--require-saved "expanding a turn")
+  (let ((prompt-index (anqa--prompt-index-at-point)))
+    (unless prompt-index (user-error "Point is not inside a prompt"))
+    (let* ((result (anqa--render-session anqa-session-reference t prompt-index))
+           (section (anqa--extract-prompt-section
+                     (plist-get result :text) prompt-index))
+           (bounds (anqa--prompt-subtree-bounds)))
+      (unless section
+        (user-error "No transcript for prompt %s" prompt-index))
+      (let ((inhibit-read-only t))
+        (goto-char (car bounds))
+        (delete-region (car bounds) (cdr bounds))
+        (insert section)
+        (unless (string-suffix-p "\n" section)
+          (insert "\n")))
+      (anqa--apply-document
+       (buffer-substring-no-properties (point-min) (point-max))
+       anqa-session-id
+       (or (plist-get result :notesRevision) anqa-notes-revision)
+       anqa-session-reference)
+      (goto-char (point-min))
+      (re-search-forward (format "^\\* Prompt %s$" prompt-index) nil t)
+      (beginning-of-line))))
+
 (defun anqa-open-prompt-at-point ()
   "Select the prompt at point in the running TUI."
   (interactive)
@@ -810,6 +860,7 @@ The TUI terminal buffer stays: it belongs to the user, not to this client."
   "C-c C-n" #'anqa-new-note
   "C-c C-k" #'anqa-delete-note
   "C-c C-o" #'anqa-open-at-point
+  "C-c C-e" #'anqa-expand-turn-at-point
   "C-c C-c" #'anqa-save-note
   "C-x C-s" #'anqa-save-buffer)
 
@@ -817,8 +868,10 @@ The TUI terminal buffer stays: it belongs to the user, not to this client."
   "Major mode for live Anqa Org session buffers.
 
 Transcript is read-only Markdown in source blocks; only note field bodies edit.
+Open is turns and notes; C-c C-e loads that prompt's transcript.
 Keys: C-c C-c save note, C-x C-s save all, C-c C-n new note, C-c C-k delete,
-C-c C-o open child or select prompt in TUI, C-c C-r refresh. In Doom/Evil, gr also refreshes."
+C-c C-e expand turn, C-c C-o open child or select prompt in TUI, C-c C-r refresh.
+In Doom/Evil, gr also refreshes."
   (setq-local write-contents-functions '(anqa-save-buffer))
   (add-hook 'kill-buffer-hook #'anqa--kill-buffer-hook nil t)
   (setq-local org-src-fontify-natively t)
