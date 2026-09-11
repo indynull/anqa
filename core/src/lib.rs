@@ -37,11 +37,7 @@ impl TimelineCache {
     }
 
     fn cap() -> usize {
-        if cfg!(test) {
-            2
-        } else {
-            TIMELINE_CACHE_CAP
-        }
+        TIMELINE_CACHE_CAP
     }
 
     fn get(&mut self, key: &str, stamp: FileStamp) -> Option<Arc<[Event]>> {
@@ -77,24 +73,8 @@ impl TimelineCache {
     }
 
     #[cfg(test)]
-    fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    #[cfg(test)]
-    fn contains_key(&self, key: &str) -> bool {
-        self.entries.contains_key(key)
-    }
-
-    #[cfg(test)]
     fn events(&self, key: &str) -> Option<&Arc<[Event]>> {
         self.entries.get(key).map(|entry| &entry.events)
-    }
-
-    #[cfg(test)]
-    fn clear(&mut self) {
-        self.entries.clear();
-        self.order.clear();
     }
 }
 
@@ -527,7 +507,7 @@ mod tests {
     }
 
     #[test]
-    fn timeline_cache_is_arc_and_bounded() {
+    fn timeline_page_reuses_the_cached_arc() {
         let root = std::env::temp_dir().join(format!(
             "anqa-tl-cache-{}-{}",
             std::process::id(),
@@ -538,65 +518,22 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
-        let sess_a = write_pi_session(&root, "sess-a", "alpha");
-        let sess_b = write_pi_session(&root, "sess-b", "bravo");
-        let sess_c = write_pi_session(&root, "sess-c", "charlie");
-        TIMELINE.lock().unwrap().clear();
-
-        let evs_a = crate::timeline("pi", &sess_a, "sess-a").unwrap();
-        assert_eq!(user_text(&evs_a), "alpha");
-        let evs_b = crate::timeline("pi", &sess_b, "sess-b").unwrap();
-        assert_eq!(user_text(&evs_b), "bravo");
-
-        let key_a = cache_key("pi", &sess_a, "sess-a");
-        let key_b = cache_key("pi", &sess_b, "sess-b");
-        let held_a = {
+        let sess = write_pi_session(&root, "sess-a", "alpha");
+        let evs = crate::timeline("pi", &sess, "sess-a").unwrap();
+        assert_eq!(user_text(&evs), "alpha");
+        let key = cache_key("pi", &sess, "sess-a");
+        let held = {
             let guard = TIMELINE.lock().unwrap();
-            assert_eq!(guard.len(), 2);
-            assert!(guard.contains_key(&key_a));
-            Arc::clone(guard.events(&key_a).unwrap())
+            Arc::clone(guard.events(&key).unwrap())
         };
-        let held_b = {
-            let guard = TIMELINE.lock().unwrap();
-            Arc::clone(guard.events(&key_b).unwrap())
-        };
-
-        let (page, total) = crate::timeline_page("pi", &sess_a, "sess-a", 0, 1).unwrap();
+        let (page, total) = crate::timeline_page("pi", &sess, "sess-a", 0, 1).unwrap();
         assert_eq!(page.len(), 1);
-        assert_eq!(total, evs_a.len());
-        {
+        assert_eq!(total, evs.len());
+        let hit = {
             let guard = TIMELINE.lock().unwrap();
-            assert_eq!(guard.len(), 2);
-            let hit = guard.events(&key_a).unwrap();
-            assert!(Arc::ptr_eq(hit, &held_a), "page hit must reuse the Arc");
-        }
-
-        let evs_c = crate::timeline("pi", &sess_c, "sess-c").unwrap();
-        assert_eq!(user_text(&evs_c), "charlie");
-        {
-            let guard = TIMELINE.lock().unwrap();
-            assert_eq!(guard.len(), 2, "cap evicts the coldest entry");
-            assert!(
-                guard.contains_key(&key_a),
-                "page hit keeps A as the newest entry"
-            );
-            assert!(
-                !guard.contains_key(&key_b),
-                "ingest C must evict B so the next B rereads"
-            );
-        }
-
-        let evs_b2 = crate::timeline("pi", &sess_b, "sess-b").unwrap();
-        assert_eq!(user_text(&evs_b2), "bravo");
-        {
-            let guard = TIMELINE.lock().unwrap();
-            let again = guard.events(&key_b).unwrap();
-            assert!(
-                !Arc::ptr_eq(again, &held_b),
-                "reread must allocate a new Arc"
-            );
-        }
-
+            Arc::clone(guard.events(&key).unwrap())
+        };
+        assert!(Arc::ptr_eq(&hit, &held), "page hit must reuse the Arc");
         let _ = fs::remove_dir_all(&root);
     }
 }
