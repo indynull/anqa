@@ -20,7 +20,7 @@ from ..models import JsonObject, ListStatus, as_json_object
 from ..notes import notes_source_mtime_ns
 from ..paths import cache_dir
 from ..tags import tags_source_mtime_ns
-from .sources import default_catalog_root, list_host_session_dirs
+from .sources import default_catalog_root, list_catalog_session_dirs
 from .subagents import drop_subagent_sessions
 
 _STAMP_FILES = ("summary.json", "signals.json", "updates.jsonl", "events.jsonl")
@@ -364,7 +364,7 @@ def load_or_rebuild_catalog(
     """Return catalog rows for *root*, rebuilding only sessions whose stamps changed."""
     root = Path(root).expanduser()
     dest_path = Path(dest).expanduser() if dest is not None else default_catalog_snapshot(root)
-    list_fn = list_dirs if list_dirs is not None else list_host_session_dirs
+    list_fn = list_dirs if list_dirs is not None else list_catalog_session_dirs
     dirs = list_fn(root)
     stamps = [host_source_stamp(sd) for sd in dirs]
     cached = _read_payload(dest_path)

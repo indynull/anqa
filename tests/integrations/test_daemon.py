@@ -530,6 +530,42 @@ def test_stop_terminates_foreground_pid_file_owner(tmp_path: Path) -> None:
         log.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def test_detached_start_without_path_does_not_resolve_default_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``anqad`` with no ``-P`` must not treat the Grok store as an explicit tree."""
+    daemon = import_module("anqa.control.daemon")
+    sock = tmp_path / "default-store.sock"
+    seen: list[Path | None] = []
+    real_argv = daemon._detached_child_argv
+
+    def fake_argv(
+        *,
+        socket_path: Path,
+        traces_path: Path | None,
+        include_host: bool | None,
+    ) -> list[str]:
+        seen.append(traces_path)
+        return real_argv(
+            socket_path=socket_path,
+            traces_path=traces_path,
+            include_host=include_host,
+        )
+
+    monkeypatch.setattr(daemon, "_detached_child_argv", fake_argv)
+    monkeypatch.setattr(daemon, "control_socket_accepts", lambda _p: False)
+    monkeypatch.setattr(daemon, "lock_holder_pids", lambda _p: [])
+
+    class _Proc:
+        pid = 99
+
+    monkeypatch.setattr("subprocess.Popen", lambda *_a, **_k: _Proc())
+    monkeypatch.setattr(daemon, "wait_until_control_accepts", lambda *_a, **_k: True)
+    result = daemon.start_control_daemon_detached(socket_path=sock, traces_path=None)
+    assert result.ok
+    assert seen == [None]
+
+
 def test_detached_start_status_stop_lifecycle(tmp_path: Path) -> None:
     """Detached start returns; status live; stop tears down only that owner."""
     daemon = import_module("anqa.control.daemon")
@@ -729,6 +765,41 @@ async def test_tui_autostart_attaches_and_leaves_daemon(tmp_path: Path) -> None:
         code = daemon.stop_control_daemon(sock, timeout=5.0)
         lines.append(f"stop={code}")
         log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_launch_tui_default_does_not_pin_an_explicit_store(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Bare ``anqa`` starts the owner on every adapter store, not Grok only."""
+    from anqa.cli import launch_tui
+    from anqa.control.daemon import EnsureDaemonResult
+
+    sock = tmp_path / "default.sock"
+    captured: list[dict[str, object]] = []
+
+    def fake_ensure(**kwargs: object) -> EnsureDaemonResult:
+        captured.append(kwargs)
+        return EnsureDaemonResult(
+            ok=True,
+            already_running=True,
+            spawned=False,
+            pid=1,
+            socket_path=sock,
+        )
+
+    class FakeApp:
+        def __init__(self, **kw: object) -> None:
+            self.kw = kw
+
+        def run(self) -> None:
+            return None
+
+    monkeypatch.setattr("anqa.control.daemon.ensure_control_daemon", fake_ensure)
+    monkeypatch.setattr("anqa.ui.app.AnqaApp", FakeApp)
+    launch_tui(path=None, config=None, socket=sock, ensure_anqad=True)
+    assert captured
+    assert captured[0]["traces_path"] is None
+    assert captured[0]["include_host"] is None
 
 
 def test_launch_tui_ensure_anqad_sets_attach_only(tmp_path: Path) -> None:

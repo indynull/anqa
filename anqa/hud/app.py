@@ -13,6 +13,7 @@ from ..control.daemon import (
     EnsureDaemonResult,
     control_socket_accepts,
     ensure_control_daemon,
+    include_host_for_explicit_store,
     wait_until_control_accepts,
 )
 from ..control.server import default_socket_path
@@ -115,11 +116,12 @@ def run_hud(
 
     load_app_config()
     sock = Path(socket_path or default_socket_path()).expanduser()
-    tr = resolve_catalog_root(catalog_root)
+    tr = resolve_catalog_root(catalog_root) if catalog_root is not None else None
     if auto_anqad:
         result = ensure_control_daemon(
             socket_path=sock,
             traces_path=tr,
+            include_host=include_host_for_explicit_store(tr),
         )
         # Race: spawn lost the bind to a live TUI/serve — still attach if OK.
         if not result.ok and control_socket_accepts(sock):

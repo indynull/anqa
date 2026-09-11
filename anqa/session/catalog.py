@@ -797,7 +797,9 @@ class SessionCatalogCache:
         if not dirs:
             return self.get(), {}
         with self._lock:
-            if self._building or self._rows is None:
+            if self._building:
+                return list(self._rows or []), {}
+            if self._rows is None:
                 current = None
                 snap_rev = -1
             else:

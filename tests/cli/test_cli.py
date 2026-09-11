@@ -278,6 +278,7 @@ class TestLaunchTui:
             captured_calls.clear()
             launch_tui(path=None, config=None, ensure_anqad=False)
             assert len(captured_calls) == 1
+            assert captured_calls[0]["traces_path"] is None
 
             cfg = tmp_path / "config.toml"
             cfg.write_text("", encoding="utf-8")

@@ -12,7 +12,7 @@ from enum import StrEnum
 from pathlib import Path
 from urllib.parse import unquote
 
-from .subagents import drop_subagent_sessions
+from .subagents import drop_subagent_sessions, is_nested_subagent_stub, nested_child_ids
 
 _HOST_SKIP_DIR_NAMES = frozenset(
     {
@@ -362,9 +362,22 @@ def list_host_session_dirs(root: Path) -> list[Path]:
     return found
 
 
+def list_catalog_session_dirs(root: Path) -> list[Path]:
+    """Host session dirs the catalog stamps (directory entries only).
+
+    Drops nested stubs and basenames listed under a sibling ``subagents/``.
+    Does not read ``summary.json``.
+    """
+    found = list_host_session_dirs(root)
+    child_ids = nested_child_ids(found)
+    return [
+        path for path in found if not is_nested_subagent_stub(path) and path.name not in child_ids
+    ]
+
+
 def collect_host_session_dirs(root: Path) -> list[Path]:
     """Host sessions for the operator catalog (tree shape, then drop children)."""
-    return drop_subagent_sessions(list_host_session_dirs(root))
+    return drop_subagent_sessions(list_catalog_session_dirs(root))
 
 
 def collect_session_dirs(
@@ -405,6 +418,7 @@ __all__ = [
     "collect_host_session_dirs",
     "collect_session_dirs",
     "default_catalog_root",
+    "list_catalog_session_dirs",
     "list_host_session_dirs",
     "is_adapter_store_root",
     "is_encoded_cwd_name",

@@ -1130,30 +1130,6 @@ class AnqaApp(App):
                 merged[idx] = (meta, label)
         return merged
 
-    def _await_complete_catalog(self, gen: int, first: JsonObject) -> JsonObject:
-        """Poll ``session/list`` until the owner scan finishes (or timeout).
-
-        First paint already happened. This runs on the catalog worker so the
-        UI stays interactive while serve warms a cold tree.
-        """
-        result = first
-        deadline = time.monotonic() + 120.0
-        while bool(result.get("incomplete") or result.get("building")):
-            if not self._sessions_load_current(gen):
-                return result
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return result
-            time.sleep(min(0.15, remaining))
-            page = first_home_list_fetch()
-            result = self._fetch_control_catalog_sync(
-                since_revision=int(page["since_revision"]),
-                drain=bool(page["drain"]),
-                limit=int(page["limit"]),
-                offset=int(page["offset"]),
-            )
-        return result
-
     def _fill_remaining_catalog_pages(self, gen: int, listed: JsonObject, offset: int) -> None:
         """Fetch later ``session/list`` pages after first paint. Never drains."""
         page = int(DEFAULT_SESSION_LIST_LIMIT)
@@ -1161,9 +1137,8 @@ class AnqaApp(App):
         batch_len = len(raw) if isinstance(raw, list) else 0
         matched_raw = listed.get("matched")
         matched = matched_raw if isinstance(matched_raw, int) else 0
-        stalled = bool(listed.get("incomplete") or listed.get("building"))
         while True:
-            nxt = catalog_list_next_offset(offset, batch_len, page, matched, stalled=stalled)
+            nxt = catalog_list_next_offset(offset, batch_len, page, matched, stalled=False)
             if nxt is None or not self._sessions_load_current(gen):
                 return
             nxt_listed = self._fetch_control_catalog_sync(drain=False, limit=page, offset=nxt)
@@ -1188,7 +1163,6 @@ class AnqaApp(App):
             nxt_matched = nxt_listed.get("matched")
             if isinstance(nxt_matched, int):
                 matched = nxt_matched
-            stalled = bool(nxt_listed.get("incomplete") or nxt_listed.get("building"))
 
     def _load_sessions_via_control(
         self,
@@ -1261,25 +1235,6 @@ class AnqaApp(App):
             n = len(rows)
             call_ui(self, self._rebuild_session_filters)
             call_ui(self, self._populate_session_table, force=True)
-            if bool(result.get("incomplete") or result.get("building")):
-                result = self._await_complete_catalog(gen, result)
-                if not self._sessions_load_current(gen):
-                    return
-                rev_raw = result.get("revision")
-                if isinstance(rev_raw, int) and rev_raw > 0:
-                    self._catalog_revision = rev_raw
-                raw = result.get("sessions")
-                wire_rows = (
-                    [as_json_object(r) for r in raw if isinstance(r, dict)]
-                    if isinstance(raw, list)
-                    else []
-                )
-                rows = self._rows_from_catalog_wire(wire_rows)
-                if not self._apply_session_meta_rows(gen, rows):
-                    return
-                n = len(rows)
-                call_ui(self, self._rebuild_session_filters)
-                call_ui(self, self._populate_session_table, force=True)
             if first is not None:
                 self._fill_remaining_catalog_pages(gen, result, int(first["offset"]))
                 n = len(self._meta_only)

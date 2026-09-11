@@ -4,6 +4,12 @@ Notable product state for anqa.
 
 ## Unreleased
 
+### Bug fix
+
+- A live journal write no longer starts a second full catalog walk.
+  The terminal paints the snapshot on attach. List stamps skip Grok
+  subagent siblings. A default ``anqa`` start lists every adapter store.
+
 ### Chore
 
 - Tested Claude Code 2.1.268, Codex 0.154.0, Copilot 1.0.83, Cursor

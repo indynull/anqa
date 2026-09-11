@@ -181,6 +181,41 @@ def test_list_for_rpc_after_owner_restart_returns_full_snapshot(tmp_path: Path) 
     assert future_ids == {"alpha", "beta", "gamma"}
 
 
+def test_catalog_rebuild_does_not_stamp_subagent_siblings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """List stamps are parent sessions only — sibling children are not catalog rows."""
+    from anqa.session import mtime_export
+
+    traces = tmp_path / "sessions"
+    parent = _write_sess(traces, "parent", "Parent")
+    child = traces / "child"
+    child.mkdir()
+    (child / "summary.json").write_text(
+        json.dumps(
+            {
+                "info": {"id": "child"},
+                "generated_title": "Child",
+                "session_kind": "subagent",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (child / "updates.jsonl").write_text("{}\n", encoding="utf-8")
+    (parent / "subagents" / "child").mkdir(parents=True)
+    stamped: list[str] = []
+    real = mtime_export.host_source_stamp
+
+    def track(session_dir: Path) -> tuple[str, int, int, int]:
+        stamped.append(Path(session_dir).name)
+        return real(session_dir)
+
+    monkeypatch.setattr(mtime_export, "host_source_stamp", track)
+    rows = list_session_catalog(traces_path=traces, include_host=False)
+    assert {str(r["sessionId"]) for r in rows} == {"parent"}
+    assert "child" not in stamped
+
+
 def test_fat_catalog_list_does_not_parse_timeline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

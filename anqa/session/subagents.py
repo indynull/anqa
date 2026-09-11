@@ -121,9 +121,9 @@ def drop_subagent_sessions(sessions: list[Path]) -> list[Path]:
     for session in sessions:
         if is_nested_subagent_stub(session):
             continue
-        if is_subagent_kind(read_session_kind(session)):
-            continue
         if session.name in child_ids:
+            continue
+        if is_subagent_kind(read_session_kind(session)):
             continue
         kept.append(session)
     return kept

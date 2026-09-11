@@ -219,8 +219,68 @@ def test_first_attach_fills_later_pages_without_drain(tmp_path: Path, monkeypatc
     assert f"p{matched - 1}" in ids
 
 
-def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monkeypatch) -> None:
-    """Cold attach paints immediately, then applies the finished snapshot."""
+def test_building_snapshot_still_fills_later_pages(tmp_path: Path, monkeypatch) -> None:
+    """A building owner still has snapshot rows; page them without polling."""
+    from anqa.session.access import DEFAULT_SESSION_LIST_LIMIT
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    traces.mkdir(parents=True)
+    sock = tmp_path / "control.sock"
+    app = AnqaApp(
+        traces_path=traces,
+        control_socket=sock,
+        control_attach_only=True,
+    )
+    page = int(DEFAULT_SESSION_LIST_LIMIT)
+    matched = page + 50
+    fetches: list[dict[str, object]] = []
+
+    def row(i: int) -> dict[str, object]:
+        return {
+            "sessionId": f"b{i}",
+            "path": str(traces / f"b{i}"),
+            "title": f"B{i}",
+            "label": f"B{i}",
+        }
+
+    def fake_fetch(
+        *,
+        query: str = "",
+        since_revision: int = 0,
+        drain: bool = True,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> dict[str, object]:
+        fetches.append({"drain": drain, "limit": limit, "offset": offset})
+        start = int(offset)
+        stop = start + int(limit or page)
+        rows = [row(i) for i in range(start, min(stop, matched))]
+        return {
+            "sessions": rows,
+            "total": matched,
+            "matched": matched,
+            "revision": 5,
+            "unchanged": False,
+            "removed": [],
+            "delta": False,
+            "incomplete": True,
+            "building": True,
+        }
+
+    monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
+    monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
+    gen = app._begin_sessions_load()
+    app._load_sessions_via_control(gen, quiet=False)
+    assert {"drain": False, "limit": page, "offset": page} in fetches
+    ids = {meta.session_id for meta, _label in app._meta_only}
+    assert len(ids) == matched
+
+
+def test_incomplete_first_page_does_not_poll_until_scan_finishes(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Cold attach paints the snapshot page and leaves the walk in the background."""
     work = tmp_path / "work"
     traces = work / "runs" / "traces"
     traces.mkdir(parents=True)
@@ -274,10 +334,15 @@ def test_incomplete_first_page_replaced_when_scan_finishes(tmp_path: Path, monke
 
     monkeypatch.setattr(app, "_fetch_control_catalog_sync", fake_fetch)
     monkeypatch.setattr("anqa.ui.app.call_ui", lambda *_a, **_k: None)
-    monkeypatch.setattr("anqa.ui.app.time.sleep", lambda _s: None)
+    sleeps: list[float] = []
+    monkeypatch.setattr("anqa.ui.app.time.sleep", lambda s: sleeps.append(float(s)))
     gen = app._begin_sessions_load()
     app._load_sessions_via_control(gen, quiet=False)
-    assert len(fetches) >= 2
+    assert fetches == ["hit"]
+    assert sleeps == []
+    assert app._meta_only == []
+    gen2 = app._begin_sessions_load()
+    app._load_sessions_via_control(gen2, quiet=True)
     ids = {meta.session_id for meta, _label in app._meta_only}
     assert ids == {"ready-1"}
     assert app._catalog_revision == 11

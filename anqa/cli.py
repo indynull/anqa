@@ -95,7 +95,7 @@ def launch_tui(
     from .ui.app import AnqaApp
 
     cfg = config.expanduser() if config is not None else None
-    tr = resolve_catalog_root(path)
+    tr = resolve_catalog_root(path) if path is not None else None
     session: Path | None = None
     if path is not None:
         candidate = Path(path).expanduser()

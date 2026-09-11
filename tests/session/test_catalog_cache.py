@@ -111,6 +111,47 @@ def test_list_for_rpc_cold_returns_without_joining_scan(tmp_path: Path, monkeypa
     assert {str(r["sessionId"]) for r in later["sessions"]} == {f"s{i}" for i in range(5)}
 
 
+def test_refresh_rows_during_rebuild_does_not_join_scan(tmp_path: Path, monkeypatch) -> None:
+    """A live journal watch must not wait on or force a second full walk."""
+    import anqa.session.catalog as catalog_mod
+
+    work = tmp_path / "work"
+    traces = work / "runs" / "traces"
+    one = _write_sess(traces, "one", "One")
+    _write_sess(traces, "two", "Two")
+    release = threading.Event()
+    started = threading.Event()
+    calls = {"n": 0}
+    real = catalog_mod.list_session_catalog
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        calls["n"] += 1
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache.list_for_rpc(limit=10)
+    assert started.wait(timeout=2)
+    assert calls["n"] == 1
+
+    done: dict[str, object] = {}
+
+    def call() -> None:
+        done["out"] = cache.refresh_rows([one])
+
+    th = threading.Thread(target=call)
+    th.start()
+    th.join(0.4)
+    assert not th.is_alive(), "refresh_rows joined the in-flight catalog scan"
+    assert calls["n"] == 1
+    release.set()
+    th.join(timeout=5)
+    assert th.is_alive() is False
+
+
 def test_catalog_rebuild_invokes_on_rebuilt(tmp_path: Path) -> None:
     """Owner can notify attach clients when a cold scan finishes."""
     work = tmp_path / "work"

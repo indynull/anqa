@@ -787,7 +787,7 @@ def run_control_daemon(
     :returns: Process exit code (0 clean stop, 1 ownership conflict / error).
     """
     sock = Path(socket_path or default_socket_path()).expanduser()
-    tr = resolve_catalog_root(traces_path)
+    tr = resolve_catalog_root(traces_path) if traces_path is not None else None
 
     configure_serve_logging()
 
@@ -1194,7 +1194,7 @@ def start_control_daemon_detached(
                 socket_path=sock,
             )
 
-    tr = resolve_catalog_root(traces_path)
+    tr = resolve_catalog_root(traces_path) if traces_path is not None else None
 
     sock.parent.mkdir(parents=True, exist_ok=True)
     log_path = control_log_path(sock)
