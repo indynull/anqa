@@ -212,8 +212,8 @@ The footer lists the keys that apply now; `?` is the full list.
 On Timeline, drag the list/detail divider to resize the panes. Enter
 still opens a full-width event.
 
-The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / Command+C
-or Control+C / `j` `k`
+The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / Ctrl+Shift+C
+/ `j` `k`
 / `h` `l` (previous / next Timeline turn) / `N`. Tab moves between
 focusable controls. Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
 `]` jumps to the next turn that still matches Filter, only while All
@@ -226,8 +226,9 @@ An open event has a
 
 ### Export
 
-`E` on the list or browser writes a session bundle under
+`E` on the terminal list or browser writes a session bundle under
 `~/.anqa/reports/` (profile in `export.default_profile`, or pick once).
+The palette has no export.
 A parent bundle includes `children/<id>/session.tar.gz` for each
 openable child. Exporting an opened child is that child only.
 

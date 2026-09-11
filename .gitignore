@@ -30,7 +30,6 @@ traces/
 /target/
 desktop/target/
 desktop/lcov.info
-scan/target/
 .superpowers/
 # Local scratch (HUD walk screenshots, ad-hoc probes — never commit)
 /tmp/

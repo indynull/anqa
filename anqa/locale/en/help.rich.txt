@@ -46,7 +46,8 @@ The footer lists primary keys. The palette lists the rest.
 Desktop HUD shares ? / Esc / / / y / j k / h l (Timeline turns) / N
 with this TUI. Tab moves between HUD controls. Ctrl+Tab or Ctrl+1-5
 change panes; [ ] also scope Timeline turns (all / next).
-HUD x deletes a note (press twice). Session delete is the terminal app.
+HUD x deletes a note (press twice). Session delete and export (E) are
+the terminal app.
 A keys.toml remap applies on both surfaces. An overlay may set one
 leader key, then one letter (leader+X). Esc or timeout cancels.
 Copy examples/keys/colemak.toml to ~/.anqa/keys.toml for Colemak

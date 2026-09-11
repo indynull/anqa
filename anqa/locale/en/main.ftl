@@ -25,8 +25,6 @@ bind-clear-view = Clear filter
 
 bind-close = Close
 
-bind-configs = Recipes
-
 bind-delete = Delete
 
 bind-disable-all = Disable all
@@ -77,11 +75,7 @@ bind-quit = Quit
 
 bind-refresh = Refresh
 
-bind-resume = Fork
-
 bind-save = Save
-
-bind-save-cfg = Save recipe
 
 bind-search = Search
 
@@ -91,7 +85,6 @@ bind-select = Select
 
 bind-select-all = Select all
 
-bind-share = Share
 
 bind-toggle = Toggle
 
@@ -120,10 +113,6 @@ cmd-back-sessions-help = Leave browser
 cmd-clear-timeline-view = Clear timeline view
 
 cmd-clear-timeline-view-help = c — All events + clear search
-
-cmd-delete-config = Delete config
-
-cmd-delete-config-help = Remove recipe (not sessions)
 
 cmd-delete-sessions = Delete sessions
 
@@ -518,16 +507,6 @@ ui-discard = Discard
 
 ui-keep-editing = Keep editing
 
-runner = Runner
-
-runner-tab-extras = 3 Extras
-
-runner-tab-recipe = 1 Recipe
-
-runner-tab-runtime = 2 Runtime
-
-runner-title = Runner
-
 runs-label = Runs
 
 save = Save
@@ -812,20 +791,6 @@ ui-finished-in-1 = [/bold] finished in
 
 ui-gh-write = GH Write
 
-runner-caps-section-mcp = [bold]MCP[/] ({$n})
-
-runner-caps-section-skills = [bold]Skills[/] ({$n})
-
-runner-caps-section-plugins = [bold]Plugins[/] ({$n})
-
-runner-caps-section-env = [bold]Env[/] ({$n}): {$keys}
-
-runner-caps-item = [green]•[/] {$name}
-
-runner-caps-none = [dim]—[/]
-
-runner-caps-run-heading = [bold]This run only[/]
-
 run-config-plugins = Plugins: {$list}
 
 
@@ -833,12 +798,6 @@ run-config-plugins = Plugins: {$list}
 run-config-mcp = MCP: {$list}
 
 run-config-skills = Skills: {$list}
-
-runner-save-extras-summary = · mcp={$mcp} skills={$skills} plugins={$plugins} inline={$inline} env={$env}
-
-runner-token-resolved = resolved
-
-runner-token-none = none
 
 ui-github-mcp-skills-footer-for-keys =
      · GitHub / MCP / skills · Footer + ? for keys[/dim]
@@ -865,8 +824,6 @@ ui-id-2 = Id
 ui-image = image:
 
 ui-in-flight-running-in-background-j-jobs-logs-no-p =  in flight — running in background ([bold]J[/bold] = jobs/logs; no per-run popups)
-
-ui-inherit-from-runner-run-config = (inherit from runner / run config)
 
 ui-input = Input
 
@@ -997,8 +954,6 @@ ui-want-to-quit-title = Do you want to quit?
 ui-ok-2 = ok
 
 ui-ok-3 = OK
-
-ui-open-in-runner = open in runner
 
 ui-other = Other
 
@@ -1424,19 +1379,6 @@ count-turns = { $n } turns
 ui-mcp-pick-sel = {$n} selected · {$configured} configured · {$ids}
 ui-plugins-pick-sel = Selected ({$n}): {$ids}
 ui-skills-pick-sel = {$n} selected · {$ids}
-
-bind-export-task = Export task
-
-cmd-export-task = Export as task YAML
-cmd-export-task-help = Write a batch tasks YAML from this recipe or form (choose path)
-
-export-task-title = Export as task YAML
-export-task-hint = Path for the tasks catalog file (default under ~/.anqa/tasks/).
-export-task-placeholder = ~/.anqa/tasks/my-task.yaml
-export-task-saved = Task YAML saved: { $path }
-export-task-failed = Export task failed: { $exc }
-export-task-no-prompt = Prompt is required to export a task
-export-task-no-config = No recipe selected to export
 
 ui-harness = Harness
 ui-origin = Origin

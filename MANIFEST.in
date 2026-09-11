@@ -3,7 +3,8 @@ include Cargo.lock
 include desktop/Cargo.toml
 recursive-include desktop/src *
 recursive-include desktop/assets *
-include scan/Cargo.toml
-recursive-include scan/src *
+include core/Cargo.toml
+recursive-include core/src *
+recursive-include brand *
 include scripts/cibw-repair-linux.sh
 include LICENSE
