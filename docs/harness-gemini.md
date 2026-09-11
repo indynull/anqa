@@ -6,7 +6,7 @@ surfaces live in [`harness-adapters.md`](harness-adapters.md#gemini--gemini-cli)
 When Gemini CLI ships a new session shape, update **this file and the
 parser in the same change** as `supported_version`.
 
-Pin: adapter `supported_version` (last parsed product, today **0.57.0**).
+Pin: adapter `supported_version` (last parsed product, today **0.59.0**).
 Gemini session files on this machine did not write a product version
 onto the row; `harness_version` stays empty.
 
@@ -42,7 +42,7 @@ until the store writes a usage object this machine can probe.
 
 ## Usage
 
-No `usage` / `usageMetadata` / token object on the live 0.57 files
+No `usage` / `usageMetadata` / token object on the live 0.59 files
 probed here. `context_tokens_used` stays unset. Percent / window
 stay unset.
 

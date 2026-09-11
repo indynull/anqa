@@ -6,7 +6,7 @@ surfaces live in [`harness-adapters.md`](harness-adapters.md#codex--codex).
 When Codex ships a new session shape, update **this file and the
 parser in the same change** as `supported_version`.
 
-Pin: adapter `supported_version` (last parsed product, today **0.151.0**).
+Pin: adapter `supported_version` (last parsed product, today **0.154.0**).
 That is the `cli_version` on `session_meta` when the store wrote it.
 
 ## Published source

@@ -6,7 +6,7 @@ surfaces live in [`harness-adapters.md`](harness-adapters.md#opencode--opencode)
 When OpenCode ships a new session shape, update **this file and the
 parser in the same change** as `supported_version`.
 
-Pin: adapter `supported_version` (last parsed product, today **1.18.29**).
+Pin: adapter `supported_version` (last parsed product, today **1.18.30**).
 
 ## Published source
 

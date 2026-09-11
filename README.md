@@ -173,14 +173,14 @@ unset. Per-store surfaces:
 | Id | Product | Tested | Store |
 |----|---------|--------|--------|
 | `antigravity` | [Antigravity](https://antigravity.google/docs/cli/overview) | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` plus `brain/<uuid>/…/transcript.jsonl` |
-| `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` (children in `<uuid>/subagents/`) |
-| `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.82 | `~/.copilot/session-store.db` plus `session-state/<id>/events.jsonl` |
-| `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` |
-| `cursor` | [Cursor](https://cursor.com) | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` plus `chats/*/<id>/meta.json` |
-| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.57.0 | `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl` |
+| `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.268 | `~/.claude/projects/<cwd>/<uuid>.jsonl` (children in `<uuid>/subagents/`) |
+| `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.83 | `~/.copilot/session-store.db` plus `session-state/<id>/events.jsonl` |
+| `codex` | [Codex](https://github.com/openai/codex) | 0.154.0 | `~/.codex/sessions/**/rollout-*.jsonl` |
+| `cursor` | [Cursor](https://cursor.com) | 2026.09.10-fd3934a | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` plus `chats/*/<id>/meta.json` |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.59.0 | `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl` |
 | `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.25 | `~/.grok/sessions/<cwd>/<id>/` |
-| `opencode` | [OpenCode](https://opencode.ai) | 1.18.29 | `~/.local/share/opencode/opencode.db` |
-| `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` |
+| `opencode` | [OpenCode](https://opencode.ai) | 1.18.30 | `~/.local/share/opencode/opencode.db` |
+| `pi` | [Pi](https://pi.dev) | 0.85.1 | `~/.pi/agent/sessions/**/*.jsonl` |
 
 Tested is the product version we last parsed. `[catalog] ignore`
 drops a store. `[catalog.roots]` overrides a path.

@@ -124,7 +124,7 @@ class CodexAdapter:
 
     id = CODEX_HARNESS_ID
     product = "Codex"
-    supported_version = "0.151.0"
+    supported_version = "0.154.0"
 
     def root(self) -> Path:
         return default_sessions_root()

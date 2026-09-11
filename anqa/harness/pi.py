@@ -129,7 +129,7 @@ class PiAdapter:
 
     id: str = PI_HARNESS_ID
     product: str = "Pi"
-    supported_version: str = "0.84.4"
+    supported_version: str = "0.85.1"
 
     def root(self) -> Path:
         """Host sessions tree."""

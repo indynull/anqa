@@ -6,7 +6,7 @@ surfaces live in [`harness-adapters.md`](harness-adapters.md#claude--claude-code
 When Claude Code ships a new session shape, update **this file and the
 parser in the same change** as `supported_version`.
 
-Pin: adapter `supported_version` (last parsed product, today **2.1.251**).
+Pin: adapter `supported_version` (last parsed product, today **2.1.268**).
 That string is the product version written on each jsonl row
 (`version`) and mapped to `SessionMeta.harness_version`.
 

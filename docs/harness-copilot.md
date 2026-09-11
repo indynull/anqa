@@ -6,7 +6,7 @@ surfaces live in [`harness-adapters.md`](harness-adapters.md#copilot--github-cop
 When Copilot CLI ships a new session shape, update **this file and the
 parser in the same change** as `supported_version`.
 
-Pin: adapter `supported_version` (last parsed product, today **1.0.82**).
+Pin: adapter `supported_version` (last parsed product, today **1.0.83**).
 
 ## Published source
 

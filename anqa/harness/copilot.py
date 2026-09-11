@@ -86,7 +86,7 @@ class CopilotAdapter:
 
     id = COPILOT_HARNESS_ID
     product = "GitHub Copilot"
-    supported_version = "1.0.82"
+    supported_version = "1.0.83"
 
     def db(self) -> Path:
         return default_db_path()

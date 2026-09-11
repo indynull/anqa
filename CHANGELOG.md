@@ -4,6 +4,11 @@ Notable product state for anqa.
 
 ## Unreleased
 
+### Chore
+
+- Tested Claude Code 2.1.268, Codex 0.154.0, Copilot 1.0.83, Cursor
+  2026.09.10-fd3934a, Gemini CLI 0.59.0, OpenCode 1.18.30, and Pi 0.85.1.
+
 ## 0.1.0 - 2026-09-10
 
 First release. Anqa is a session review tool: timeline, notes,

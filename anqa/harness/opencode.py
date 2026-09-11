@@ -295,7 +295,7 @@ class OpenCodeAdapter:
 
     id: str = OPENCODE_HARNESS_ID
     product: str = "OpenCode"
-    supported_version: str = "1.18.29"
+    supported_version: str = "1.18.30"
 
     def db(self) -> Path:
         """Host database path."""

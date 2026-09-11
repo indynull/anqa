@@ -215,7 +215,7 @@ class ClaudeAdapter:
 
     id: str = CLAUDE_HARNESS_ID
     product: str = "Claude Code"
-    supported_version: str = "2.1.251"
+    supported_version: str = "2.1.268"
 
     def root(self) -> Path:
         """Host projects tree."""

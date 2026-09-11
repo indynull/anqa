@@ -6,7 +6,7 @@ This is the anqa parse contract for the Pi store (`anqa/harness/pi.py`,
 session shape, update **this file and the parser in the same change** as
 `supported_version`.
 
-Pin: adapter `supported_version` (last parsed product, today **0.84.4**).
+Pin: adapter `supported_version` (last parsed product, today **0.85.1**).
 That is not the jsonl header `version` (schema 3) and is not written to
 `SessionMeta.harness_version` — Pi does not store a product version on
 the session.
@@ -35,7 +35,7 @@ header row.
 | Header | Keys we read |
 |--------|----------------|
 | v3 `type=session` | `id`, `cwd`, `timestamp` (ISO). `version` is the **schema**, ignored for `harness_version`. Optional `parentSession` is not linked in the catalog. |
-| v4 `kind=header` | `id`, `cwd`, `createdAt` (epoch ms). Discover and bind accept this; live 0.84.4 still writes v3. |
+| v4 `kind=header` | `id`, `cwd`, `createdAt` (epoch ms). Discover and bind accept this; live 0.85.1 still writes v3. |
 
 Later rows are a **parent-linked tree** (`id` / `parentId`). The
 timeline and list-turn follow the **leaf path**: last branch entry,

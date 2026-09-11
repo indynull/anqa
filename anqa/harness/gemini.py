@@ -222,7 +222,7 @@ class GeminiAdapter:
 
     id: str = GEMINI_HARNESS_ID
     product: str = "Gemini CLI"
-    supported_version: str = "0.57.0"
+    supported_version: str = "0.59.0"
 
     def root(self) -> Path:
         """Host project-temp tree."""

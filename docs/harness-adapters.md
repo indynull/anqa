@@ -104,7 +104,7 @@ replace tools on the timeline.
 
 ## claude — Claude Code
 
-JSONL store. Tested **2.1.251**.
+JSONL store. Tested **2.1.268**.
 
 Default root: `~/.claude/projects/<cwd-encoded>/<uuid>.jsonl`. One
 file is the parent session. Children live under
@@ -119,7 +119,7 @@ bookends. Diff is Edit / Write / StrReplace on the timeline.
 
 ## copilot — GitHub Copilot CLI
 
-SQLite catalog plus JSONL events. Tested **1.0.82**.
+SQLite catalog plus JSONL events. Tested **1.0.83**.
 
 Default files: `~/.copilot/session-store.db` (`sessions` table:
 id, cwd, repository, branch, summary, timestamps) and
@@ -132,7 +132,7 @@ session `summary`. Diff is write / replace tools on the timeline.
 
 ## codex — Codex
 
-JSONL store. Tested **0.151.0**.
+JSONL store. Tested **0.154.0**.
 
 Default root: `~/.codex/sessions/**/rollout-*.jsonl`. The session
 id is the UUID in the filename. Rows: `session_meta`,
@@ -151,7 +151,7 @@ published Begin Patch grammar (`*** Add File:`, `*** Update File:`,
 
 ## cursor — Cursor
 
-JSONL transcript plus chat meta. Tested **2026.08.25-3e8eec8**.
+JSONL transcript plus chat meta. Tested **2026.09.10-fd3934a**.
 
 Default files: `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl`
 and `~/.cursor/chats/*/<id>/meta.json` (title, cwd, timestamps).
@@ -163,7 +163,7 @@ write / replace tools on the timeline.
 
 ## gemini — Gemini CLI
 
-JSONL store. Tested **0.57.0**.
+JSONL store. Tested **0.59.0**.
 
 Default root: `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl`.
 A conversation is a header line (`sessionId` + `projectHash`, or
@@ -194,7 +194,7 @@ rewind snapshots, else write / `search_replace` tools.
 
 ## opencode — OpenCode
 
-SQLite store. Tested **1.18.29**.
+SQLite store. Tested **1.18.30**.
 
 Default file: `~/.local/share/opencode/opencode.db`. Live 1.18
 sessions are `event` rows (`session.created.1`, `session.updated.1`,
@@ -214,7 +214,7 @@ finished assistant, or archived. Diff prefers the last user
 
 ## pi — Pi
 
-JSONL store. Tested **0.84.4**. Parse contract: [`harness-pi.md`](harness-pi.md).
+JSONL store. Tested **0.85.1**. Parse contract: [`harness-pi.md`](harness-pi.md).
 
 Default root: `~/.pi/agent/sessions/**/*.jsonl`. One file is one
 session. The first row is `type=session` (id, cwd, version) or a v4

@@ -7,7 +7,7 @@ When Cursor ships a new session shape, update **this file and the
 parser in the same change** as `supported_version`.
 
 Pin: adapter `supported_version` (last parsed product, today
-**2026.08.25-3e8eec8**).
+**2026.09.10-fd3934a**).
 
 ## Published source
 

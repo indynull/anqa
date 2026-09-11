@@ -108,7 +108,7 @@ class CursorAdapter:
 
     id = CURSOR_HARNESS_ID
     product = "Cursor"
-    supported_version = "2026.08.25-3e8eec8"
+    supported_version = "2026.09.10-fd3934a"
 
     def root(self) -> Path:
         return default_store_root()
