@@ -36,7 +36,8 @@ In the session browser:
 - **Enter** — edit the focused note (click a card to select it)
 
 Notes tab lists notes. `j` / `k` move among them; Enter edits the
-focused note; double-press `x` deletes it. Export (`E`) includes
+focused note; double-press `x` deletes that note. On Timeline /
+Summary / Diff, double-press `x` deletes this session. Export (`E`) includes
 `notes/operator_notes.toml` when notes exist.
 
 **Authoring** is via TUI, Emacs, Neovim, or HUD (control plane). Batch does not write notes.

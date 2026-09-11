@@ -56,7 +56,9 @@ Shared keys match the terminal app (`?` `Esc` `/` `y` `j`/`k`
 focusable controls; Ctrl+Tab or Ctrl+1–5 change panes. `u` or the logo leaves an
 open session for the session list (`Esc` still hides, or steps out of
 Timeline detail / a child first). `g` on Turns opens Timeline for that
-turn. Enter opens (or edits the focused note). An open event has a
+turn. Enter opens (or edits the focused note). `x` deletes the focused
+note (press twice). Session delete is the terminal app (session list, or
+Timeline / Summary / Diff). An open event has a
 **Raw** switch (same control as the terminal app). A `keys.toml` remap applies on both
 surfaces. A configured leader (Colemak example: `;`) then one letter
 runs `leader+X`; Esc or timeout cancels. Copy

@@ -539,8 +539,11 @@ list.
 
 ### 6.3a Destructive delete (``x``)
 
-Double-press ``x`` (and Delete where bound) on sessions and notes.
-First press arms; second with the **same** target set commits. Shared helper:
+Double-press ``x`` (and Delete where bound). Sessions home: selected
+sessions. Browser Notes: the focused note. Browser Timeline / Summary /
+Diff: the open session. HUD Notes: the focused note (the palette does
+not delete sessions). First press arms; second with the **same** target
+set commits. Shared helper:
 :func:`anqa.ui.delete_confirm.second_press_armed`.
 
 ### 6.4 DataTable
@@ -641,8 +644,9 @@ Session browser also: ``y`` / ``Ctrl+Shift+C`` copy selection or pane body
 ``h`` / ``l`` (and Left / Right)
 next / previous turn; Enter opens a full-width event (Esc returns to the list)
 or a child from a spawn/finish bookend, or the focused note;
-``x`` deletes the focused note (double-press);
-session delete is on the session list; ``N`` new note;
+``x`` on Notes deletes the focused note (double-press);
+``x`` on Timeline / Summary / Diff deletes this session (double-press);
+``N`` new note;
 ``E`` export; ``t`` tags. ``harness:<id>`` filters the catalog.
 
 Sessions home also: ``x`` delete (double-press); ``Ctrl+O`` import
@@ -696,7 +700,7 @@ against the catalog.
 | ``F5`` / ``Ctrl+R`` | Refresh |
 | ``[`` / ``]`` + ``1``…``N`` | App panes (HUD panes are **Ctrl+Tab** / **Ctrl+1–5**) |
 | ``E`` | Export bundle |
-| ``x`` | Delete a session (double-press) |
+| ``x`` | Delete selected sessions on the list, or this session on Timeline / Summary / Diff (double-press). Palette ``x`` is note-only. |
 | ``s`` / ``space`` | Multi-select |
 
 **HUD only** — ``[`` / ``]`` are Timeline turn scope, so they cannot be

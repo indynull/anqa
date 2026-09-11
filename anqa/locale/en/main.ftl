@@ -127,7 +127,7 @@ cmd-delete-config-help = Remove recipe (not sessions)
 
 cmd-delete-sessions = Delete sessions
 
-cmd-delete-sessions-help = Delete selected traces (confirm twice)
+cmd-delete-sessions-help = Selected sessions on the list, or this session in the browser (press twice)
 
 send = Send
 

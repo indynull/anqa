@@ -179,7 +179,13 @@ ACTIONS: tuple[KeyAction, ...] = (
     # Sessions home.
     _row("list.select", ActionScope.HOME, "s,space", ActionSurface.TUI),
     _row("list.select_all", ActionScope.HOME, "S", ActionSurface.TUI),
-    _row("session.delete", ActionScope.HOME, "x,delete", ActionSurface.TUI),
+    _row(
+        "session.delete",
+        ActionScope.HOME,
+        "x,delete",
+        ActionSurface.TUI,
+        overlay_scopes=frozenset({ActionScope.HOME, ActionScope.BROWSER}),
+    ),
     _row(
         "session.export",
         ActionScope.HOME,

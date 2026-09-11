@@ -190,7 +190,7 @@ The footer lists the keys that apply now; `?` is the full list.
 | E | sessions | Export a session bundle |
 | t | sessions / HUD | Tag the selected sessions (HUD: the focused session) |
 | Ctrl+O | sessions / HUD | Import a harness archive or anqa export |
-| x | sessions | Delete (press twice) |
+| x | sessions | Delete selected sessions (press twice) |
 | [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
 | h / l / Left / Right | browser | Previous / next turn on the Timeline |
 | j / k | browser | Previous / next Timeline event, or previous / next note |
@@ -203,7 +203,8 @@ The footer lists the keys that apply now; `?` is the full list.
 | Ctrl+Shift+C | browser | Same as y |
 | E | browser | Export a session bundle |
 | t | browser / HUD | Tag this session |
-| x | browser / HUD | Delete the focused note (press twice); on the session list, delete the session (every harness store) |
+| x | browser | Notes: focused note (press twice). Timeline / Summary / Diff: this session (press twice) |
+| x | HUD | Focused note (press twice). Session delete is the terminal app |
 | s | pickers | Select |
 | Ctrl+S | pickers | Apply the selection |
 | Esc | pickers | Cancel |
@@ -218,7 +219,9 @@ focusable controls. Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filte
 `]` jumps to the next turn that still matches Filter, only while All
 turns is selected. `u` or the logo leaves the
 open session for the session list. `g` on Turns opens Timeline for that
-turn. Enter opens (or edits the focused note). An open event has a
+turn. Enter opens (or edits the focused note). `x` deletes the focused
+note (press twice); wiping a session from disk is the terminal app.
+An open event has a
 **Raw** Switch: this event as JSON.
 
 ### Export
@@ -308,8 +311,10 @@ palette only. [Emacs](#emacs) and
 ## Control
 
 `anqad` owns the per-user Unix socket. The four clients attach.
-Deleting a session from the terminal list goes through that owner, so
-the desktop palette drops the row instead of opening a missing session.
+Deleting a session from the terminal list or from Timeline / Summary /
+Diff goes through that owner, so the desktop palette drops the row
+instead of opening a missing session. The palette `x` deletes a note
+only.
 
 ```bash
 anqad -d
