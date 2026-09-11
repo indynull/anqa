@@ -4,12 +4,12 @@ Summonable session palette for anqa. The idle list is **Recent**
 (latest eight). Scroll down or press `j` at the bottom for the next
 eight. Type `/` to search the whole catalog. Open a session for Overview,
 Turns, Timeline, Diff, and Notes. Notes use the same schema as the
-[terminal app](../README.md#terminal-app).
+[terminal app](../README.md#first-path).
 
 It attaches to [`anqad`](../docs/control.md) — same socket as the
-[terminal app](../README.md#terminal-app), [Emacs](../README.md#emacs),
+[terminal app](../README.md#first-path), [Emacs](../README.md#emacs),
 and [Neovim](../README.md#neovim-09). See [Desktop
-HUD](../README.md#desktop-hud) in the main README.
+palette](../README.md#desktop-palette) in the main README.
 
 ## Run
 

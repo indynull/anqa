@@ -1,7 +1,7 @@
 # Control
 
 One process owns a per-user Unix socket. The four clients — [terminal
-app](../README.md#terminal-app), [Desktop HUD](../README.md#desktop-hud),
+app](../README.md#first-path), [desktop palette](../README.md#desktop-palette),
 [Emacs](../README.md#emacs), and [Neovim](../README.md#neovim-09) — attach
 and talk JSON-RPC 2.0. They never bind the socket.
 

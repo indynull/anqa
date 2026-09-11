@@ -3,339 +3,278 @@
   <img src="brand/png/anqa-lockup-stacked-on-dark.png#gh-dark-mode-only" alt="anqa" height="200" />
 </p>
 
-[![CI](https://github.com/indynull/anqa/actions/workflows/ci.yml/badge.svg)](https://github.com/indynull/anqa/actions/workflows/ci.yml)
-[![Codecov](https://codecov.io/gh/indynull/anqa/graph/badge.svg)](https://codecov.io/gh/indynull/anqa)
-[![Docs](https://img.shields.io/badge/docs-pages-0A66C2)](https://indynull.github.io/anqa/)
-[![Python 3.13+](https://img.shields.io/badge/python-3.13%2B-3776AB)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://pypi.org/project/anqa/"><img src="https://img.shields.io/pypi/v/anqa" alt="PyPI" /></a>
+  <a href="https://github.com/indynull/anqa/actions/workflows/ci.yml"><img src="https://github.com/indynull/anqa/actions/workflows/ci.yml/badge.svg" alt="CI" /></a>
+  <a href="https://codecov.io/gh/indynull/anqa"><img src="https://codecov.io/gh/indynull/anqa/graph/badge.svg" alt="Codecov" /></a>
+  <a href="https://indynull.github.io/anqa/"><img src="https://img.shields.io/badge/docs-pages-0A66C2" alt="Docs" /></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.13%2B-3776AB" alt="Python 3.13+" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT" /></a>
+</p>
 
-**anqa** is a session review tool: timeline, notes, workspace diffs,
-and a summonable desktop palette. It reads [supported
-harnesses](#supported-harnesses) from their native stores.
+Anqa reviews coding-agent sessions that are already on this machine.
+It lists every shipped store (Grok Build, Claude Code, Codex, Cursor,
+Gemini CLI, OpenCode, Copilot, Pi, Antigravity), opens one session, and
+gives you the timeline, the turn list, the workspace diff, background
+work, child runs, and a place to write notes. Search is a query
+language on the catalog, the timeline, and turns — not a linear scan
+of whatever is on screen.
 
-Four clients talk to [`anqad`](#control).
+Four clients share one owner process (`anqad`) and the same catalog.
 
-| Client | What it does |
-|--------|----------------|
-| [Terminal app](#terminal-app) | Browse sessions, export |
-| [Desktop HUD](#desktop-hud) | Summonable session palette |
-| [Emacs](#emacs) | Org buffer |
-| [Neovim](#neovim-09) | Markdown buffer |
+| Client | Start | Job |
+|--------|-------|-----|
+| Terminal app | `anqa` | Catalog, full browser, export, session delete |
+| Desktop palette | `anqa desktop` | Summonable overlay: Recent, then Overview / Turns / Timeline / Diff / Notes |
+| Emacs | `(load … "anqa editor emacs-path")` | Org outline of turns and notes; expand a turn for the transcript |
+| Neovim 0.9+ | `require("anqa").setup()` | Markdown buffer on the same socket |
 
-## Install
+<a id="terminal-app"></a>
+
+## First path
 
 ```bash
 uv tool install anqa
-anqa                          # terminal app
-anqa desktop                  # desktop palette
-uv tool upgrade anqa
+anqa
 ```
 
-From a clone (needs Rust):
+`/` searches the list. Enter opens a session. `1`–`4` are Timeline,
+Summary, Diff, Notes. `N` on Notes writes a note. `E` exports a
+bundle. `q` leaves the terminal app; `anqad` keeps running.
 
 ```bash
-uv tool install --editable .
+anqa desktop              # palette (starts anqad if the socket is free)
+anqa desktop --toggle     # show or hide; bind this on Wayland
+anqa desktop --open ID    # show the palette on that session
 ```
 
-From git:
+From a clone (needs Rust): `uv tool install --editable .`
 
-```bash
-uv tool install git+https://github.com/indynull/anqa
-```
+## A session
 
-TestPyPI (pre-release wheels, same package name):
+The terminal browser and the desktop palette show the same body.
+What each pane can fill depends on what that store wrote.
 
-```bash
-uv tool install --index-url https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ anqa
-```
+**Catalog.** Newest activity first. Title, product, model, turn
+status (`running`, `awaiting`, `ending`, `complete`, `cancelled`,
+or `—` when the last row is a user message or a bookend), event
+count, and a context meter when the store exported one. Operator
+tags are yours. Subagent directories stay off this list; open them
+from the parent.
 
-## Paths
+**Timeline.** Events in order: user and assistant messages, tool
+calls, session markers, children, background work, workflows,
+errors. Filter (`v` in the terminal). `h` / `l` step turns. `/`
+searches the whole session (`tool:read_file`, `turn:>300`,
+`is:error`). Enter opens an event. On a spawn or finish bookend,
+Enter opens the child. Tail follows a live session.
 
-| Root | Default | Holds |
-|------|---------|--------|
-| Config home | `~/.anqa` | `config.toml`, optional `keys.toml`, notes, reports |
-| Catalog | each enabled adapter store | listed sessions (`[catalog.roots]` can override a path) |
+**Summary / Overview.** Session glance, then Tasks (shells,
+monitors, schedules), Workflows, Subagents, and Stats. Enter a
+child or a bookend to inspect the run (Asked / Happened / Failed)
+or open that session. Esc returns.
 
-```bash
-anqa                      # catalog: every shipped store
-```
+**Turns** (desktop). One row per owner turn. `g` jumps to that turn
+on Timeline. Search takes `has:error`, `tools:>=5`, `duration:>1m`.
 
-`~/.anqa/config.toml` is the only prefs file (terminal app and desktop HUD).
-Missing keys use defaults. Saves keep comments on keys they do not change.
-Schema: [config](https://indynull.github.io/anqa/schemas/config.schema.json)
-(`anqa config validate`, `just schema`). Copy
-[`examples/config/config.toml`](examples/config/config.toml).
+**Diff.** Rewind snapshots when the store wrote them, otherwise
+patches rebuilt from write and edit tool calls (Codex
+`apply_patch` included). Prompt and Assistant tabs sit above a
+files and hunk split. `/` finds a path or hunk text.
 
-```toml
-#:schema https://indynull.github.io/anqa/schemas/config.schema.json
+**Notes.** Operator notes on a turn, with a configurable field
+schema (`~/.anqa/notes_schema.toml`). `N` creates, Enter edits,
+double-press `x` deletes that note. Export includes them.
 
-theme = "auto"
-follow_os = false
-auto_anqad = true
-live_refresh_workers = 1
+Live sessions update the list when the store changes. The open
+palette re-reads overview about every three seconds while it is
+on screen.
 
-[hud]
-window_mode = false
-global_shortcut = ""
-desktop_notifications = true
+## Search
 
-[export]
-default_profile = ""
-```
+`/` on the session list. Bare words match title, id, and label.
+Space is AND. `AND`, `OR`, and `NOT` must be that spelling. Tab
+completes the last token. The list waits 0.28s after the last
+key so each keystroke does not walk the catalog.
 
-`theme = "auto"`: the terminal app follows the terminal (`COLORFGBG`,
-then the desktop) and paints the host pair paper (`ansi-light` /
-`ansi-dark`). The desktop palette follows the system light/dark pair
-and, when the OS reports it, system paper and ink. Picking any member
-of a named pair (`gruvbox` or `gruvbox-light`) stores the family and
-sets `follow_os = true`; both clients apply the desktop member. An
-unpaired name (`nord`) pins both clients. Aliases `anqa` and
-`anqa-light` mean `auto`. Drop a TOML file in `~/.anqa/themes/`
-(see [`examples/themes/`](examples/themes/)) and point `theme` at its
-stem.
+| Query | Meaning |
+|-------|---------|
+| `is:complete AND NOT has:note` | Finished sessions you have not written up |
+| `has:note AND is:awaiting` | Waiting on a reply, and you already wrote notes |
+| `has:error OR has:failure` | Tool errors or a failed child |
+| `workflows:>=2 AND NOT is:complete` | Multi-workflow sessions still going |
+| `in:~/src/app AND after:yesterday` | This repo, updated since yesterday |
+| `harness:grok tag:review` | One store, tagged |
 
-Key remaps stay in `keys.toml` (below), not in this file.
+`is:` running, awaiting, ending, complete, cancelled, idle, host,
+import. `has:` workflow, note, goal, plan, subagent, task, job,
+schedule, error, failure, diff, git, context, compaction, doom.
+Counts use the written pair (`plans:>=2`, `errors:>=5`). Also
+`in:`, `model:`, `task:`, `tag:`, `after:`, `before:`,
+`duration:`. `tag:review,ui` is both.
 
-Optional key diffs: `~/.anqa/keys.toml` (`ANQA_KEYS` overrides the path).
-A missing file keeps the catalog defaults. Esc, Enter, Tab, Shift+Tab, and
-`?` are not remappable. The product default has no leader. An overlay may
-set one printable leader (recommended Colemak: `;`) and bind `leader+X`
-for one extra letter. Copy [`examples/keys/colemak.toml`](examples/keys/colemak.toml)
-to `~/.anqa/keys.toml` for home-row `n`/`e` list motion (leader then
-letter). The TUI and HUD both use the resolved map for footer,
-help, and dispatch. The footer shows the leader while it is armed.
+Timeline and Turns use the same operators. Tokens and more
+examples: [`docs/search.md`](docs/search.md).
 
-```bash
-anqa keys              # resolved table (scope, id, chord, surface)
-anqa keys --occupancy  # taken chords per scope
-anqa keys --check      # exit 1 on overlay errors
-```
+## Import and export
+
+`E` on the terminal list or browser writes a session bundle under
+`~/.anqa/reports/` (or the profile in `export.default_profile`).
+A parent bundle includes each openable child. The palette has no
+export.
+
+`Ctrl+O` on the session list (and `anqa import PATH`) unpacks a
+harness archive or an anqa export into `~/.anqa/imports/<harness>/`
+and lists it with `is:import`. The terminal app browses the
+filesystem; the palette uses the host picker and accepts a dropped
+file.
+
+## Keys
+
+The footer lists the keys this screen can run. `?` is the full
+list. Shared actions use the same chord on the terminal and the
+palette.
+
+| Key | Where | Action |
+|-----|-------|--------|
+| `/` | list, browser, palette | Search |
+| j / k | lists | Down / up |
+| Enter | lists | Open |
+| Esc | everywhere | Back or dismiss |
+| y / Ctrl+Shift+C | browser | Copy the selection or the focused body |
+| N | Notes | New note (palette `N` opens the Notes pane) |
+| x | list | Delete selected sessions (press twice) |
+| x | Notes | Delete the focused note (press twice) |
+| x | Timeline / Summary / Diff | Delete this session (press twice) |
+| [ ]  1–4 | terminal browser | Timeline, Summary, Diff, Notes |
+| Ctrl+Tab / Ctrl+1–5 | palette | Overview, Turns, Timeline, Diff, Notes |
+| h / l | Timeline | Previous / next turn |
+| v | Timeline | Filter |
+| E | terminal | Export |
+| Ctrl+O | list | Import |
+| t | list or open session | Tag |
+| Ctrl+P | terminal | Command palette |
+| F5 / Ctrl+R | terminal | Refresh |
+| q | terminal | Quit (`anqad` stays up) |
+| u | palette | Leave the session for the list |
+| g | palette Turns | Timeline for that turn |
+| [ / ] | palette Timeline | All turns / next Filter hit |
+
+On Timeline, drag the list/detail divider to resize the panes.
 
 ## Supported harnesses
 
 A harness is a coding-agent product whose sessions anqa lists and
-opens. Run `anqa` and the home list is every shipped store. Filter
-with `harness:<id>`. OpenCode, Copilot, and Antigravity keep
-sessions in SQLite (plus a transcript where that product writes
-one). Claude Code, Codex, Cursor, Gemini CLI, and Pi keep one
-JSONL conversation per session. Grok Build keeps a session
-directory. What a session can do (rewind, context meter, next
-prompt) is whatever that store wrote.
+opens. Filter with `harness:<id>`. List Turn, Diff, children, and
+the context meter come from that store. Missing product data stays
+unset. Per-store surfaces:
+[`docs/harness-adapters.md`](docs/harness-adapters.md#session-surfaces).
 
 | Id | Product | Tested | Store |
 |----|---------|--------|--------|
 | `antigravity` | [Antigravity](https://antigravity.google/docs/cli/overview) | 1.1.22 | `~/.gemini/antigravity-cli/conversations/<uuid>.db` plus `brain/<uuid>/…/transcript.jsonl` |
 | `claude` | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | 2.1.251 | `~/.claude/projects/<cwd>/<uuid>.jsonl` (children in `<uuid>/subagents/`) |
 | `copilot` | [GitHub Copilot](https://docs.github.com/en/copilot) | 1.0.82 | `~/.copilot/session-store.db` plus `session-state/<id>/events.jsonl` |
-| `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` (`apply_patch` Begin Patch grammar) |
+| `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` |
 | `cursor` | [Cursor](https://cursor.com) | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` plus `chats/*/<id>/meta.json` |
-| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.57.0 | `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl` (`$set` / `session_metadata`) |
-| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.25 | `~/.grok/sessions/<cwd>/<id>/` (`updates.jsonl`, `rewind_points.jsonl`, `signals.json`) |
-| `opencode` | [OpenCode](https://opencode.ai) | 1.18.29 | `~/.local/share/opencode/opencode.db` (`event` rows; `session` / `message` / `part` for archives) |
-| `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` (`type=session` header) |
+| `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.57.0 | `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl` |
+| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.25 | `~/.grok/sessions/<cwd>/<id>/` |
+| `opencode` | [OpenCode](https://opencode.ai) | 1.18.29 | `~/.local/share/opencode/opencode.db` |
+| `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` |
 
-Tested is the product version we last parsed. A session may carry a
-different `harnessVersion` from its own files. Each product's record
-types, list Turn, children, Diff, Tasks, Workflows, and the other
-session surfaces:
-[`docs/harness-adapters.md`](docs/harness-adapters.md#session-surfaces).
+Tested is the product version we last parsed. `[catalog] ignore`
+drops a store. `[catalog.roots]` overrides a path.
 
-Notes for every store live under
-`~/.anqa/notes/<harness>/<session_id>/`.
+<a id="desktop-hud"></a>
 
-The home list and the session glance show the product name. The
-catalog lists every shipped adapter. `[catalog] ignore` drops a
-store. `[catalog.roots]` overrides a store's default location.
+## Desktop palette
 
-## Catalog
-
-The list is every enabled adapter store. Filter with `harness:<id>`.
-Every note has a `source`
-(who wrote it). Control `notes/upsert` accepts any field bag plus that
-source. A new note uses `~/.anqa/notes_schema.toml`. Editing a note
-also shows extra stored fields as free-text. Notes, the edit form,
-and HUD Notes show a source badge plus the stored fields. Subagent runs stay off the top
-list; open them from the parent (Summary run table, or Timeline
-Subagents filter — Enter, or click the tile in the desktop HUD). Esc
-returns to that Timeline or Turns place. Background shells, monitors, and schedules live on Summary **Tasks**.
-Workflows and subagent runs have their own Summary tabs. Timeline
-filters Background / Workflows / Subagents list the bookends. Open a
-row or a bookend to inspect the merged run (Asked / Happened / Failed).
-Enter on a workflow child or subagent opens that child session. The
-desktop Overview uses the same tabs.
-Failed runs are listed on Summary.
-
-## Terminal app
-
-`anqa` (or `anqa tui`) is the session client: session list, browser
-panes, notes, and export. Diff lists rewind turns
-or approximate file edits from write tools, with Prompt and
-Assistant tabs above a files and hunk split. `/` searches those
-files; Enter and Shift+Enter step every matching line, and the
-bar shows how many hits.
-The footer lists the keys that apply now; `?` is the full list.
-
-| Key | Where | Action |
-|-----|-------|--------|
-| Tab | everywhere | Next control |
-| Shift+Tab | everywhere | Previous control |
-| Arrows | everywhere | Move in a list |
-| j / k | everywhere | Move down / up in a list |
-| Enter | everywhere | Open or activate |
-| Esc | everywhere | Back or close |
-| ? | everywhere | This panel |
-| Ctrl+P | everywhere | Command palette for this screen |
-| F5 | everywhere | Refresh (also Ctrl+R) |
-| q | everywhere | Quit when no field is focused |
-| / | sessions | Search (Tab completes the last token) |
-| s / Space | sessions | Select (also Space) |
-| S | sessions | Select all rows in the current filter |
-| E | sessions | Export a session bundle |
-| t | sessions / HUD | Tag the selected sessions (HUD: the focused session) |
-| Ctrl+O | sessions / HUD | Import a harness archive or anqa export |
-| x | sessions | Delete selected sessions (press twice) |
-| [ ]  1-4 | browser | Timeline, Summary, Diff, Notes |
-| h / l / Left / Right | browser | Previous / next turn on the Timeline |
-| j / k | browser | Previous / next Timeline event, or previous / next note |
-| v | browser | Filter (Subagents, Background, Workflows) |
-| Enter | browser / HUD | Open a Timeline event or child; edit the focused note; next Diff match |
-| Shift+Enter | Diff | Previous Diff match |
-
-| N | browser / HUD | New note (TUI Notes); Notes pane (HUD) |
-| y | browser / HUD | Copy the selection or the focused / primary pane body |
-| Ctrl+Shift+C | browser | Same as y |
-| E | browser | Export a session bundle |
-| t | browser / HUD | Tag this session |
-| x | browser | Notes: focused note (press twice). Timeline / Summary / Diff: this session (press twice) |
-| x | HUD | Focused note (press twice). Session delete is the terminal app |
-| s | pickers | Select |
-| Ctrl+S | pickers | Apply the selection |
-| Esc | pickers | Cancel |
-
-On Timeline, drag the list/detail divider to resize the panes. Enter
-still opens a full-width event.
-
-The [Desktop HUD](#desktop-hud) shares `?` / `Esc` / `/` / `y` / Ctrl+Shift+C
-/ `j` `k`
-/ `h` `l` (previous / next Timeline turn) / `N`. Tab moves between
-focusable controls. Ctrl+Tab or Ctrl+1–5 change panes. `[` is All turns (Filter stays).
-`]` jumps to the next turn that still matches Filter, only while All
-turns is selected. `u` or the logo leaves the
-open session for the session list. `g` on Turns opens Timeline for that
-turn. Enter opens (or edits the focused note). `x` deletes the focused
-note (press twice); wiping a session from disk is the terminal app.
-An open event has a
-**Raw** Switch: this event as JSON.
-
-### Export
-
-`E` on the terminal list or browser writes a session bundle under
-`~/.anqa/reports/` (profile in `export.default_profile`, or pick once).
-The palette has no export.
-A parent bundle includes `children/<id>/session.tar.gz` for each
-openable child. Exporting an opened child is that child only.
-
-### Import
-
-`Ctrl+O` on the session list opens a file picker in the terminal
-app (browse, Up / h / Left / Backspace for the parent folder, or
-type a path). The desktop palette uses the host picker and also
-accepts a dropped archive. `anqa import PATH` does the same from
-the shell. The owner unpacks the
-native harness archive (or an anqa `E` export) into
-`~/.anqa/imports/<harness>/` and lists it with `is:import`. Browse
-it like any other session.
-
-### Catalog search
-
-`/` on the session list. Last-token completions appear while you type. `?` notes that. Bare words match title, id, and label. Space is AND. `AND`, `OR`, and `NOT` must be that spelling (`and` is a word in the title). The list updates after a short pause (same 0.28s idle on the terminal and the desktop palette) so each key does not walk the catalog. The palette sends the committed query to `anqad`.
-
-| Token | Matches |
-|-------|---------|
-| `is:running` `is:awaiting` `is:ending` `is:complete` `is:cancelled` `is:idle` `is:host` `is:import` | Turn status or import store. `is:running` is a turn in progress (store live flag or mid-turn work). `is:idle` is no list status (last user row or bookend), not an open window |
-| `has:workflow` `has:note` `has:goal` `has:plan` `has:subagent` `has:task` `has:job` `has:schedule` `has:error` `has:failure` `has:diff` `has:git` `has:context` `has:compaction` `has:doom` | Presence (`has:plan` is at least one). Counts use the written pair (`plans:>=2`, `errors:>=5`, `goals:1`). Both words are listed in the schema; nothing is pluralized. `has:goal` is ``goal/state.json``. `has:plan` is ``plan.json`` or ``plan_mode.json``. `has:task` is Overview Tasks (shells, monitors, or schedules). `task:` is a task-id substring. Git stays yes/no. |
-| `workflows:` `notes:` `goals:` `plans:` `errors:` `turns:` `tools:` `events:` | Counts, with `>` `>=` `<` `<=` `=` |
-| `duration:` | Session length (`1h`, `2d`, `30m`), same compares |
-| `in:~/path` | Directory the session was run in |
-| `model:` `task:` | Substring |
-| `tag:` | Operator tag. `tag:review,ui` is both (comma is AND) |
-| `after:` `before:` | `updatedAt` (ISO, `yesterday`, `2d`, `2 days ago`) |
-| `OR` `NOT` `-` `( )` | Compose |
-
-| Query | Meaning |
-|-------|---------|
-| `has:note AND is:awaiting` | Waiting on a reply, and you already wrote notes |
-| `is:complete AND NOT has:note` | Finished sessions you have not written up |
-| `has:error OR has:failure` | Tool errors or a failed child |
-| `workflows:>=2 AND NOT is:complete` | Multi-workflow sessions still going |
-| `errors:>=5 AND NOT has:note` | Noisy sessions you have not written up |
-| `notes:>=2 AND after:yesterday` | Recently updated, more than one note |
-| `has:subagent OR has:workflow` | Spawned a child or a workflow |
-| `in:~/src/app AND after:yesterday` | This repo, updated since yesterday |
-
-Timeline search (same `AND` / `OR` / `NOT`) also takes `is:tool` (or `user`, `assistant`, `error`, `session`, `subagent`, `background`, `workflow`), `has:error`, `tool:read_file`, `turn:2`, `turn:>300`, `user:hello`, and `duration:>=2` (the Dur column: tool call to result, or time to the next event). The query runs on the whole session, not only the first loaded page. Turns search (desktop) takes `has:error`, `has:subagent`, `tools:>=5`, `errors:>=2`, `events:>=20`, and `duration:>1m` (turn wall time). Last-token hints appear under the box. The Filter and Turn dropdowns stay. The Timeline search box is a full-width row under Filter / Turn / Tail.
-
-## Desktop HUD
-
-Summonable palette: Recent sessions (scroll or `j` for more), catalog
-search (same query language as the terminal list), then Overview /
-Turns / Timeline / Diff / Notes. Type is Fira Sans and Fira Code
-with ligatures. `u` or the logo returns to the session list.
-Details: [`desktop/README.md`](desktop/README.md).
+Summonable overlay. Idle list is Recent (scroll or `j` for more).
+`/` searches the whole catalog. Open a session for Overview, Turns,
+Timeline, Diff, and Notes. Same notes schema as the terminal app.
+More: [`desktop/README.md`](desktop/README.md).
 
 ```bash
-anqad -d             # or let the client start anqad
-anqa desktop         # PATH binary from uv tool install; one process + tray
-anqa desktop --toggle    # show or hide (Wayland bind this)
-anqa desktop --restart   # replace the running palette
-anqa desktop --rebuild   # cargo-build this checkout, then launch
+anqa desktop
+anqa desktop --toggle
+anqa desktop --open <session-id>
+anqa desktop --install-desktop
 ```
 
-`anqa desktop` runs `anqa-hud` from `ANQA_HUD_BIN` or `PATH`. From a
-checkout, `--rebuild` builds this tree; `--debug` is the unoptimized
-binary; `--dev` is `cargo run`.
-
-Default hotkey **Cmd+Shift+A** (macOS) / **Ctrl+Shift+A** (Windows and
-X11 Linux). Override with `hud.global_shortcut` in
-`~/.anqa/config.toml` or `ANQA_HUD_SHORTCUT`. On Wayland bind
-`anqa desktop --toggle`: a compositor bind forwards an activation token so
-you can type immediately; tray **Show** or a terminal `--toggle`
-does not steal the keyboard. Sway places the overlay (float/center);
-focus is that token. While the overlay is on screen, a live poll
-re-reads overview about every **3 seconds** (idle sessions slower).
-An unfocused pop-out or hidden overlay waits on control notifies instead.
-
-`anqa desktop --install-desktop` writes user-local icons and a launcher
-named **anqa** (Linux `.desktop` `Exec` uses `--show`, macOS
-`~/Applications/anqa.app`, Windows Start Menu). Re-run after moving
-the binary or to refresh the launcher. Tray **Quit anqa** exits the
-palette only. [Emacs](#emacs) and
-[Neovim](#neovim-09) attach to the same [control](#control) socket.
+Default hotkey **Cmd+Shift+A** (macOS) / **Ctrl+Shift+A** (Windows
+and X11). Override with `hud.global_shortcut` or
+`ANQA_HUD_SHORTCUT`. On Wayland bind `anqa desktop --toggle` so the
+compositor forwards an activation token. Tray **Quit anqa** exits
+the palette only. Clicking a desktop notification opens that
+session.
 
 ## Control
 
 `anqad` owns the per-user Unix socket. The four clients attach.
-Deleting a session from the terminal list or from Timeline / Summary /
-Diff goes through that owner, so the desktop palette drops the row
-instead of opening a missing session. The palette `x` deletes a note
-only.
+Bare `anqa` and `anqa desktop` detach-start it when the socket is
+free (`--no-anqad` attaches only). Quitting a client leaves `anqad`
+running. Session delete from the list or from Timeline / Summary /
+Diff goes through that owner so every client drops the row.
 
 ```bash
 anqad -d
 anqad status
 anqad stop
+anqa doctor
+anqa import PATH
 anqa export-host -o host-catalog.json
+anqa keys
+anqa config validate
 ```
 
-`export-host` writes the host catalog snapshot anqad uses (summary,
-signals, and list status from the updates tail). It does not start anqad.
+Methods and notifications: [`docs/control.md`](docs/control.md).
 
-Bare `anqa` and `anqa desktop` detach-start anqad when the socket is
-free (`--no-anqad` attaches only). Quitting a client leaves anqad
-running. Debug every method: `ANQA_SERVE_LOG_LEVEL=DEBUG anqad`
-(foreground) or `ANQA_SERVE_LOG_LEVEL=DEBUG anqad restart`. Methods,
-framing, and notifications: [docs/control.md](docs/control.md).
+## Config
+
+Prefs are `~/.anqa/config.toml`. Missing keys use defaults. Schema:
+[config](https://indynull.github.io/anqa/schemas/config.schema.json).
+Copy [`examples/config/config.toml`](examples/config/config.toml).
+
+```toml
+#:schema https://indynull.github.io/anqa/schemas/config.schema.json
+
+theme = "auto"
+auto_anqad = true
+
+[hud]
+window_mode = false
+global_shortcut = ""
+desktop_notifications = true
+
+[catalog]
+# ignore = ["pi"]
+# [catalog.roots]
+# grok = "~/.grok/sessions"
+```
+
+`theme = "auto"` follows the host (terminal ANSI, desktop
+light/dark). A named pair (`gruvbox`) follows the desktop member.
+An unpaired name pins both clients. User themes go in
+`~/.anqa/themes/`.
+
+Key remaps: `~/.anqa/keys.toml`. Esc, Enter, Tab, Shift+Tab, and
+`?` are not remappable. Copy
+[`examples/keys/colemak.toml`](examples/keys/colemak.toml) for
+home-row list motion. `anqa keys` prints the resolved table.
+
+Notes fields: copy
+[`examples/notes/notes_schema.example.toml`](examples/notes/notes_schema.example.toml)
+to `~/.anqa/notes_schema.toml`.
+
+## Paths
+
+| Root | Default | Holds |
+|------|---------|--------|
+| Config home | `~/.anqa` | `config.toml`, `keys.toml`, notes, reports, themes |
+| Catalog | each enabled adapter store | listed sessions |
+| Notes | `~/.anqa/notes/<harness>/<session_id>/` | operator notes |
+| Import store | `~/.anqa/imports/<harness>/` | archives opened with `Ctrl+O` |
+| Reports | `~/.anqa/reports/` | `E` export bundles |
 
 ## Emacs
 
@@ -343,8 +282,8 @@ framing, and notifications: [docs/control.md](docs/control.md).
 (load (string-trim (shell-command-to-string "anqa editor emacs-path")))
 ```
 
-Sessions open as Org. Same [control](#control) socket as the
-[terminal app](#terminal-app) and [HUD](#desktop-hud).
+Opens a session as Org (turns and notes). `C-c C-e` loads that
+prompt's transcript. Starts `anqad -d` when the socket is missing.
 
 ## Neovim (0.9+)
 
@@ -353,30 +292,18 @@ vim.opt.rtp:prepend(vim.fn.trim(vim.fn.system({ "anqa", "editor", "vim-path" }))
 require("anqa").setup()
 ```
 
-Sessions open as Markdown. Start serve (or the terminal app) so the
+Opens a session as Markdown. Start `anqad` (or `anqa`) so the
 socket exists.
 
-Schemas: [config](https://indynull.github.io/anqa/schemas/config.schema.json),
-[control](https://indynull.github.io/anqa/schemas/control.schema.json).
+## Examples and development
 
-## Examples
-
-Supported packs under [`examples/`](examples/README.md) — copy into
-`~/.anqa/` or pass paths. Not auto-loaded.
-
-```bash
-just examples-check
-```
-
-## Development
+Packs under [`examples/`](examples/README.md) copy into `~/.anqa/`.
+Not auto-loaded.
 
 ```bash
 just install
 just lint
 just test
-just ci              # lint + schema-check + hud-check + examples-check + test
-just bump 0.1.1      # version strings + CHANGELOG.md
+just ci
+just harness-probe
 ```
-
-Also: `anqa doctor` (config home, catalog, HUD seat), `anqa keys`,
-`anqa import PATH`.

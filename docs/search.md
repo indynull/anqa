@@ -2,7 +2,7 @@
 
 Session list, Timeline, and Turns search use the same boolean operators.
 Bare words are ANDed. Last-token hints appear under the box on the
-[terminal app](../README.md#terminal-app) and [Desktop HUD](../README.md#desktop-hud).
+[terminal app](../README.md#first-path) and [desktop palette](../README.md#desktop-palette).
 Press `?` on the session list for the in-app legend.
 
 Implementation: `anqa/control/contract.py` (`catalogQuery` in the control
