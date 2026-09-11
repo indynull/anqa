@@ -1185,6 +1185,15 @@ async def test_browser_first_paint_defers_summary_and_notes(tmp_path: Path) -> N
         assert shown[-2] is grow
         assert shown[-1] is cluster
         assert search not in bar.children
+        await wait_until(
+            pilot,
+            lambda: (
+                cluster.region.width > 0
+                and grow.region.width > 0
+                and cluster.region.x > grow.region.x
+            ),
+            description="Tail cluster laid out to the right of the filter grow",
+        )
         assert search.region.y > filt.region.y
         assert grow.region.x > view.region.x
         assert cluster.region.x > grow.region.x
