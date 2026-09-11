@@ -179,7 +179,7 @@ on the timeline (`run_shell_command` is not a file edit).
 
 ## grok — Grok Build
 
-Directory store. Tested **1.0.5**.
+Directory store. Tested **1.0.25**.
 
 Default root: `~/.grok/sessions/<cwd>/<id>/`. The inspectable
 trace is `updates.jsonl` (and `events.jsonl` when present).

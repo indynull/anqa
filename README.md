@@ -127,7 +127,7 @@ prompt) is whatever that store wrote.
 | `codex` | [Codex](https://github.com/openai/codex) | 0.151.0 | `~/.codex/sessions/**/rollout-*.jsonl` (`apply_patch` Begin Patch grammar) |
 | `cursor` | [Cursor](https://cursor.com) | 2026.08.25-3e8eec8 | `~/.cursor/projects/*/agent-transcripts/<id>/<id>.jsonl` plus `chats/*/<id>/meta.json` |
 | `gemini` | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | 0.57.0 | `~/.gemini/tmp/<project-hash>/chats/session-*.jsonl` (`$set` / `session_metadata`) |
-| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.5 | `~/.grok/sessions/<cwd>/<id>/` (`updates.jsonl`, `rewind_points.jsonl`, `signals.json`) |
+| `grok` | [Grok Build](https://docs.x.ai/build/overview) | 1.0.25 | `~/.grok/sessions/<cwd>/<id>/` (`updates.jsonl`, `rewind_points.jsonl`, `signals.json`) |
 | `opencode` | [OpenCode](https://opencode.ai) | 1.18.29 | `~/.local/share/opencode/opencode.db` (`event` rows; `session` / `message` / `part` for archives) |
 | `pi` | [Pi](https://pi.dev) | 0.84.4 | `~/.pi/agent/sessions/**/*.jsonl` (`type=session` header) |
 

@@ -180,7 +180,7 @@ class GrokAdapter:
 
     id: str = GROK_HARNESS_ID
     product: str = "Grok Build"
-    supported_version: str = "1.0.5"
+    supported_version: str = "1.0.25"
 
     def default_host_roots(self) -> list[Path]:
         return [default_sessions_root()]
