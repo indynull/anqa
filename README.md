@@ -25,26 +25,30 @@ Four clients talk to [`anqad`](#control).
 ## Install
 
 ```bash
-uv tool install --editable .    # clone: anqa + anqad + anqa-hud on PATH (needs Rust)
+uv tool install anqa
 anqa                          # terminal app
 anqa desktop                  # desktop palette
+uv tool upgrade anqa
 ```
+
+From a clone (needs Rust):
+
+```bash
+uv tool install --editable .
+```
+
+From git:
 
 ```bash
 uv tool install git+https://github.com/indynull/anqa
-anqa
-anqa desktop
-uv tool upgrade anqa
 ```
+
+TestPyPI (pre-release wheels, same package name):
 
 ```bash
 uv tool install --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple/ anqa
-anqa --version
 ```
-
-Wheels for Linux, macOS, and Windows (Intel and ARM) are on
-[TestPyPI](https://test.pypi.org/project/anqa/).
 
 ## Paths
 

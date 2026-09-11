@@ -1,9 +1,10 @@
 # Changelog
 
-Notable product state for anqa. One first-release section until 0.1.0
-is tagged. This section is the product as it ships.
+Notable product state for anqa.
 
 ## Unreleased
+
+## 0.1.0 - 2026-09-10
 
 First release. Anqa is a session review tool: timeline, notes,
 workspace diffs, and a desktop palette. The catalog lists every shipped
@@ -22,9 +23,10 @@ Cursor (`cursor`) are registered.
   palette window and `?` sheet, and `anqa-hud --version`.
 - One product version across the Python package, `anqa-hud`, and
   `anqa-core`.
-- Pushes to `main`, version tags, and workflow dispatch build Linux,
-  macOS, and Windows wheels plus a source distribution, then upload
-  those files to TestPyPI.
+- Pushes to `main` and workflow dispatch build Linux, macOS, and
+  Windows wheels plus a source distribution, then upload those files
+  to TestPyPI. A version tag also uploads those files to the Python
+  package index.
 
 ### Paths and config
 
@@ -188,3 +190,4 @@ Cursor (`cursor`) are registered.
 - `just bump 0.1.1` sets every product version declaration and
   promotes this file.
 - `anqa doctor` checks config home, catalog, and HUD seat.
+
