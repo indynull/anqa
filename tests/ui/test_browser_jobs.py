@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 from anqa.session.control_views import build_session_overview, build_session_timeline
+from anqa.session_inflight import KIND_REFRESH, clear
 from anqa.ui.data_table import cursor_row_key
 from anqa.ui.screens.browser import BrowserScreen
 from anqa.ui.widgets.detail_view import DetailView
@@ -17,6 +18,10 @@ from textual.widgets import DataTable
 from textual.widgets.data_table import RowKey
 
 from .pilot_helpers import wait_until
+
+
+def setup_function() -> None:
+    clear(KIND_REFRESH)
 
 
 def _write_jobs_session(root: Path) -> Path:
@@ -265,6 +270,9 @@ async def test_status_only_overview_refresh_paints_jobs_table(tmp_path: Path) ->
         # Light refresh is a pool worker: asyncio.run(overview) cannot run
         # on the Textual loop.
         await asyncio.to_thread(screen._load_data_light_job)
+        assert screen._session_jobs.jobs, "light refresh must keep jobs"
+        assert screen._session_jobs.jobs[0].status == "done"
+        screen._update_stats()
         await wait_until(
             pilot,
             lambda: (

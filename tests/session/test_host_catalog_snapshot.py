@@ -226,13 +226,11 @@ def test_list_session_catalog_stamp_hit_skips_session_files(tmp_path: Path, monk
     assert not any(name.endswith("events.jsonl") for name in opened)
 
 
-def test_host_export_rebuilds_when_overlay_notes_appear(tmp_path: Path, monkeypatch) -> None:
-    import anqa.harness.ref as ref_mod
+def test_host_export_rebuilds_when_overlay_notes_appear(tmp_path: Path) -> None:
     import anqa.paths as paths_mod
     from anqa.notes import NOTES_FILENAME, NoteEntry, NotesDoc, dump_notes_toml
 
-    home = paths_mod.APP_HOME
-    monkeypatch.setattr(ref_mod, "APP_HOME", home)
+    home = paths_mod.app_home()
     host = tmp_path / "host"
     session = _host_session(host, "019note-1111-2222-3333-444444444444", title="Noted")
     dest = tmp_path / "out" / "host.json"

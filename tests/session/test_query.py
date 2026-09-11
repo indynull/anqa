@@ -696,13 +696,11 @@ def test_catalog_has_disk_entities(tmp_path) -> None:
     assert catalog_has_plan(mode)
 
 
-def test_catalog_has_notes_reads_harness_overlay(tmp_path, monkeypatch) -> None:
-    import anqa.harness.ref as ref_mod
+def test_catalog_has_notes_reads_harness_overlay(tmp_path) -> None:
     import anqa.paths as paths_mod
     from anqa.notes import NOTES_FILENAME, NoteEntry, NotesDoc, dump_notes_toml
 
-    home = paths_mod.APP_HOME
-    monkeypatch.setattr(ref_mod, "APP_HOME", home)
+    home = paths_mod.app_home()
     session = tmp_path / "overlay-sid"
     session.mkdir()
     (session / "summary.json").write_text("{}", encoding="utf-8")

@@ -9,6 +9,7 @@ import tarfile
 from pathlib import Path
 
 import pytest
+from anqa.harness import opencode as opencode_store
 from anqa.harness.opencode import OPENCODE_HARNESS_ID, OpenCodeAdapter
 from anqa.harness.registry import require_adapter
 from anqa.harness.views import session_overview, session_timeline
@@ -27,7 +28,7 @@ _FIXTURE_DB = (
 def _install_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     dest = tmp_path / "opencode.db"
     shutil.copy2(_FIXTURE_DB, dest)
-    monkeypatch.setattr("anqa.harness.opencode.default_db_path", lambda: dest)
+    monkeypatch.setattr(opencode_store, "default_db_path", lambda: dest)
     return dest
 
 
@@ -533,7 +534,7 @@ def test_event_log_loads_when_message_table_is_empty_for_the_session(
         con.commit()
     finally:
         con.close()
-    monkeypatch.setattr("anqa.harness.opencode.default_db_path", lambda: db)
+    monkeypatch.setattr(opencode_store, "default_db_path", lambda: db)
     probe = Path("opencode:ses_evt_parent")
     events = require_adapter(probe).parse_timeline(probe)
     types = [e.event_type for e in events]

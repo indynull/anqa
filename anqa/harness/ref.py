@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..paths import APP_HOME
+from ..paths import app_home
 
 # Shipped adapter ids. Parse does not import the registry.
 HARNESS_IDS: frozenset[str] = frozenset(
@@ -48,7 +48,7 @@ class SessionRef:
 
     def overlay_dir(self) -> Path:
         """Operator notes: ``~/.anqa/notes/<harness>/<session_id>/``."""
-        return APP_HOME / "notes" / self.harness / self.session_id
+        return app_home() / "notes" / self.harness / self.session_id
 
     @classmethod
     def path(cls, ref: SessionRef | Path | str) -> Path:

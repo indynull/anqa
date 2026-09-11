@@ -52,6 +52,9 @@ class _RefreshAdapter:
         assert self._load_meta is not None
         return self._load_meta(_ref) if callable(self._load_meta) else self._load_meta
 
+    def load_detail(self, ref: object) -> object:
+        return self.load_meta(ref)
+
     def parse_timeline(self, _ref: object) -> object:
         assert self._parse_timeline is not None
         if callable(self._parse_timeline):
