@@ -141,8 +141,9 @@ id is the UUID in the filename. Rows: `session_meta`,
 `turn_aborted`, `item_completed` / `SubAgentActivity`).
 `<environment_context>` user blocks are not the title. Model comes
 from `turn_context` or `thread_settings_applied`. List Turn is
-`task_complete` → complete, `task_started` → running,
-`turn_aborted` → cancelled. Child threads are `SubAgentActivity`
+`task_complete` → complete, `turn_aborted` → cancelled,
+`task_started` → idle (a turn bookend, same as a last user row).
+Child threads are `SubAgentActivity`
 bookends. Diff is `apply_patch` in a tool or `exec` argument: the
 published Begin Patch grammar (`*** Add File:`, `*** Update File:`,
 `*** Delete File:`, `*** Move to:`, `*** Environment ID:`,
