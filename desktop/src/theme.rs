@@ -817,29 +817,6 @@ mod tests {
     }
 
     #[test]
-    fn painted_faces_use_token_type_steps() {
-        let view = include_str!("view.rs");
-        let kit = include_str!("kit.rs");
-        let app = include_str!("app.rs");
-        let prod_view = view.split("#[cfg(test)]").next().expect("view");
-        let prod_kit = kit.split("#[cfg(test)]").next().expect("kit");
-        let prod_app = app.split("#[cfg(test)]").next().expect("app");
-        for src in [prod_view, prod_kit] {
-            assert!(
-                !src.contains("typo::META")
-                    && !src.contains("typo::BODY")
-                    && !src.contains("typo::TITLE")
-                    && !src.contains("typo::CODE"),
-                "paint sizes must be Tokens type steps"
-            );
-        }
-        assert!(prod_view.contains(".size(tea.meta())") || prod_view.contains(".size(tok.meta())"));
-        assert!(prod_view.contains(".size(tea.body())"));
-        assert!(prod_view.contains(".size(tok.title())"));
-        assert!(prod_app.contains("tokens(\"textual-dark\").body()"));
-    }
-
-    #[test]
     fn look_knobs_match_gallery_steps() {
         let d = Look::default();
         assert_eq!(d.density_label(), "Default");

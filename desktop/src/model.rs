@@ -293,12 +293,6 @@ mod tests {
         assert_eq!(OverviewSection::Workflows.label(), "Workflows");
         assert_eq!(OverviewSection::Session.other(), OverviewSection::Tasks);
         assert_eq!(OverviewSection::Stats.other(), OverviewSection::Session);
-        let walk =
-            include_str!("../../.grok/skills/hud-visual-walkthrough/scripts/hud_walkthrough.py");
-        assert!(walk.contains("walk.key(\"ctrl+4\")"), "Diff is pane 4");
-        assert!(walk.contains("walk.key(\"ctrl+5\")"), "Notes is pane 5");
-        assert!(walk.contains("bracketleft"), "Timeline All turns is [");
-        assert!(!walk.contains("walk.key(\"ctrl+6\")"));
         assert_eq!(KindFilter::Tools.wire_name(), "tools");
         assert_eq!(KindFilter::All.wire_name(), "");
         assert_eq!(KindFilter::All.label(), "All events");

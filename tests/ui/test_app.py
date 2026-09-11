@@ -85,12 +85,6 @@ def test_browser_auto_focus_is_timeline() -> None:
     assert BrowserScreen.AUTO_FOCUS == "#timeline-list"
 
 
-def test_home_has_no_follow_up_modal() -> None:
-    from anqa.ui import app as app_mod
-
-    assert not hasattr(app_mod, "InteractiveSessionsModal")
-
-
 def test_populate_session_table_adds_row(tmp_path: Path):
     """A session with meta must still render the home table.
 

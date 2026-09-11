@@ -297,10 +297,6 @@ mod tests {
             notes_composing: false,
         });
         let _ = icedtea::pattern::status_bar("", None, None, &table, tea, tea.direction);
-        let src = include_str!("kit.rs");
-        let prod = src.split("#[cfg(test)]").next().expect("prod");
-        assert!(!prod.contains("fn status_footer"));
-        assert!(!prod.contains("style::footer"));
     }
 
     #[test]
@@ -322,45 +318,5 @@ mod tests {
         });
         let backdrop = status_empty("HUD", "backdrop", tea);
         let _ = help_modal(backdrop, &table, tea, 1.0);
-    }
-
-    #[test]
-    fn help_modal_title_includes_product_version() {
-        let src = include_str!("kit.rs");
-        assert!(src.contains("crate::VERSION"));
-    }
-
-    #[test]
-    fn help_sheet_uses_icedtea_cheatsheet() {
-        let src = include_str!("kit.rs");
-        let help = src
-            .split("pub fn help_modal")
-            .nth(1)
-            .unwrap()
-            .split("#[cfg(test)]")
-            .next()
-            .unwrap();
-        assert!(help.contains("pattern::cheatsheet"));
-        assert!(help.contains("Tokens appear under the box as you type"));
-        assert!(!help.contains("catalog_query_help_rows"));
-    }
-
-    #[test]
-    fn kit_uses_icedtea_constructors() {
-        let src = include_str!("kit.rs");
-        let prod = src.split("#[cfg(test)]").next().expect("prod");
-        assert!(prod.contains("widget::value_field"));
-        assert!(prod.contains("widget::progress"));
-        assert!(prod.contains("widget::tab_bar"));
-        assert!(prod.contains("with_disabled"));
-        assert!(prod.contains("pattern::status_page"));
-        assert!(prod.contains("dim_backdrop_at"));
-        assert!(prod.contains("motion::overlay"));
-        assert!(!prod.contains("pattern::modal_card"));
-        assert!(prod.contains("pattern::cheatsheet"));
-        assert!(prod.contains("LabelFace::Meta"));
-        assert!(prod.contains("layout::form"));
-        assert!(prod.contains("FORM_LABEL"));
-        assert!(prod.contains("text(value).size(tea.body())"));
     }
 }

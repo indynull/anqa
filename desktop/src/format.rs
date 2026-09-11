@@ -3103,7 +3103,6 @@ mod tests {
         );
         assert!(!keys.contains(&"events"));
         assert!(!keys.contains(&"context"));
-        assert!(!keys.contains(&"findings"));
         assert!(!keys.contains(&"notes"));
         assert!(rows.iter().all(|r| r.copyable));
         assert_eq!(

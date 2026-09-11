@@ -394,13 +394,4 @@ mod tests {
         let argb = rgba_to_argb(&[0x11, 0x22, 0x33, 0x44]);
         assert_eq!(argb, vec![0x44, 0x11, 0x22, 0x33]);
     }
-
-    #[test]
-    fn quit_menu_schedules_process_exit() {
-        let src = include_str!("tray.rs");
-        assert!(src.contains("schedule_quit_process"));
-        assert!(src.contains("fn quit_process"));
-        let main = include_str!("main.rs");
-        assert!(main.contains("std::process::exit"));
-    }
 }

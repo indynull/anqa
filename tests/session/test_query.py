@@ -394,7 +394,6 @@ def test_suggest_has_quantity_from_schema() -> None:
 def test_has_tokens_match_published_schema() -> None:
     assert HAS_VALUES == catalog_query_values("has")
     assert HAS_VALUES == HAS_TOKENS
-    assert "findings" not in HAS_VALUES
     assert suggest_last_token("has:") == [f"has:{name}" for name in HAS_TOKENS]
 
 

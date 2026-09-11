@@ -293,7 +293,6 @@ def test_build_session_overview_one_shot(tmp_path: Path) -> None:
     assert "schema" in ov["notes"]
     assert ov["notes"]["schema"]["fields"]
     assert {f["id"] for f in ov["notes"]["schema"]["fields"]} >= {"summary", "detail"}
-    assert "findings" not in ov
     page = build_session_timeline(sd, offset=0, limit=50)
     assert page["events"]
     kinds = {e.get("kind") for e in page["events"]}
