@@ -862,7 +862,7 @@
           ]
         },
         "session/render": {
-          "description": "Project a document (`format`: below)",
+          "description": "Project a document (`format`: below). Optional `bodies` and `promptIndex`.",
           "type": "object",
           "additionalProperties": false,
           "properties": {
@@ -878,6 +878,14 @@
                 "format": {
                   "description": "Projection: `org` (default), `markdown`, or `json`.",
                   "type": "string"
+                },
+                "bodies": {
+                  "description": "When false, turn headings and notes only (no transcript bodies).",
+                  "type": "boolean"
+                },
+                "promptIndex": {
+                  "description": "Turn / prompt index.",
+                  "type": "integer"
                 }
               },
               "required": [

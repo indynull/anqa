@@ -9,9 +9,10 @@ from pathlib import Path
 from anqa.notes import NoteEntry, NotesDoc, save_notes
 
 
-def _render_editor_document(session_dir: Path, *, format: str = "org"):
+def _render_editor_document(session_dir: Path, **kwargs):
     module = import_module("anqa.session.document")
-    return module.render_editor_document(session_dir, format=format)
+    kwargs.setdefault("format", "org")
+    return module.render_editor_document(session_dir, **kwargs)
 
 
 def _write_session(session_dir: Path) -> None:
@@ -112,6 +113,52 @@ def test_render_editor_document_uses_prompt_indexes_and_note_properties(tmp_path
     assert ":ANQA_FIELD_ID: summary" in document.text
     # Field bodies use Org fixed-width lines (cannot form headlines).
     assert ": Wrong branch" in document.text
+
+
+def test_render_editor_document_without_bodies_keeps_notes(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-outline"
+    session_dir.mkdir()
+    (session_dir / "summary.json").write_text(
+        json.dumps({"sessionId": session_dir.name, "title": "Outline", "model": "m"}),
+        encoding="utf-8",
+    )
+    (session_dir / "updates.jsonl").write_text(
+        json.dumps(
+            {
+                "timestamp": 1,
+                "params": {
+                    "update": {
+                        "sessionUpdate": "user_message_chunk",
+                        "content": {"type": "text", "text": "long body that must not appear"},
+                        "_meta": {"promptIndex": 1},
+                    }
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    note = NoteEntry.new(
+        turn_index=0,
+        source="operator",
+        fields={"summary": "Keep me", "detail": ""},
+        event_indices=[],
+        note_id="n-keep",
+    )
+    save_notes(session_dir, NotesDoc(session_id=session_dir.name, notes=[note]))
+    document = _render_editor_document(session_dir, bodies=False)
+    assert "* Prompt" in document.text
+    assert "Keep me" in document.text
+    assert "#+begin_src markdown" not in document.text
+
+
+def test_render_editor_document_prompt_index_is_one_turn(tmp_path: Path) -> None:
+    session_dir = tmp_path / "session-one-turn"
+    session_dir.mkdir()
+    _write_session(session_dir)
+    document = _render_editor_document(session_dir, prompt_index=9)
+    assert "* Prompt 9" in document.text
+    assert "* Prompt 4" not in document.text
 
 
 def test_render_org_transcript_escapes_nested_end_src(tmp_path: Path) -> None:

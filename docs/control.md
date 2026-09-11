@@ -84,7 +84,7 @@ The owner accepts either and replies in the same frame the client used.
 | `session/open` | Resolve a session and notify `session/selected` |
 | `session/import` | Open a harness archive or anqa export and add it to the catalog |
 | `session/delete` | Delete native session locators and drop them from the catalog |
-| `session/render` | Project a document (`format`: below) |
+| `session/render` | Project a document (`format`: below). Optional `bodies` and `promptIndex`. |
 | `notes/list` | Notes snapshot (`revision`, schema, notes) |
 | `notes/upsert` | Write a note (`expectedRevision`) |
 | `notes/delete` | Delete a note (`expectedRevision`) |
