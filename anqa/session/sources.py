@@ -264,6 +264,74 @@ def _immediate_session_children(path: Path) -> list[Path]:
     return out
 
 
+def is_host_directory_store(root: Path) -> bool:
+    """True when *root* is a grok-shaped directory session tree.
+
+    Host trees nest sessions under a percent-encoded cwd bucket
+    (``<store>/%2Fhome%2F…/<id>``) or keep session dirs as immediate
+    children. Jsonl adapter stores (dash-encoded project dirs with
+    ``<uuid>.jsonl``, date-bucketed rollout files) are not this shape.
+    """
+    path = Path(root).expanduser()
+    if not path.is_dir():
+        return False
+    try:
+        with os.scandir(path) as it:
+            tops = list(it)
+    except OSError:
+        return False
+    for ent in tops:
+        if not ent.is_dir(follow_symlinks=False):
+            continue
+        if is_host_skip_dir_name(ent.name):
+            continue
+        if is_encoded_cwd_name(ent.name):
+            return True
+        if _dir_is_session(Path(ent.path)):
+            return True
+    return False
+
+
+def find_named_session_dir(root: Path, session_id: str) -> Path | None:
+    """Locate *session_id* under *root* without listing every session.
+
+    Checks *root* itself, a direct child, and one encoded-cwd bucket
+    (``<root>/%2F…/<id>``). Does not walk sibling stores or load list meta.
+    """
+    sid = (session_id or "").strip()
+    base = Path(root).expanduser()
+    if not sid or not base.is_dir():
+        return None
+    if base.name == sid and _dir_is_session(base):
+        try:
+            return base.resolve()
+        except OSError:
+            return base
+    try:
+        with os.scandir(base) as it:
+            tops = list(it)
+    except OSError:
+        return None
+    for ent in tops:
+        if not ent.is_dir(follow_symlinks=False) or is_host_skip_dir_name(ent.name):
+            continue
+        child = Path(ent.path)
+        if child.name == sid and _dir_is_session(child):
+            try:
+                return child.resolve()
+            except OSError:
+                return child
+        if not is_encoded_cwd_name(ent.name):
+            continue
+        cand = child / sid
+        if _dir_is_session(cand):
+            try:
+                return cand.resolve()
+            except OSError:
+                return cand
+    return None
+
+
 def list_host_session_dirs(root: Path) -> list[Path]:
     """Host session dirs by tree shape: children or one encoded-cwd level.
 

@@ -86,16 +86,18 @@ def _run_start(
 ) -> int:
     """Start the control process (foreground or detached)."""
     from .control.daemon import (
+        include_host_for_explicit_store,
         run_control_daemon,
         start_control_daemon_detached,
     )
 
     sock = _socket_option(control_socket)
+    host = include_host_for_explicit_store(path)
     if daemonize:
         result = start_control_daemon_detached(
             socket_path=sock,
             traces_path=path,
-            include_host=None,
+            include_host=host,
         )
         if result.already_running and result.ok:
             typer.echo(f"already running  pid={result.pid}  socket={sock}", err=True)
@@ -108,7 +110,7 @@ def _run_start(
     return run_control_daemon(
         socket_path=sock,
         traces_path=path,
-        include_host=None,
+        include_host=host,
     )
 
 

@@ -12,6 +12,7 @@ from anqa.session.watch import (
     plane_event_path,
     plane_file_paths,
     session_dirs_under,
+    watch_target_paths,
 )
 from async_wait import wait_until_sync
 
@@ -201,7 +202,7 @@ def test_start_is_true_when_watch_never_yields(tmp_path: Path, monkeypatch) -> N
         if False:
             yield set()
 
-    monkeypatch.setattr("watchfiles.watch", never_yield)
+    monkeypatch.setattr("anqa.fs_watch.watch", never_yield)
     w = TraceTreeWatch(tmp_path, lambda: None)
     t0 = time.perf_counter()
     assert w.start() is True
@@ -339,3 +340,47 @@ def test_host_shaped_new_session_plane_write_updates_subscription(tmp_path: Path
     finally:
         w.stop()
     assert any(Path(p).name == "summary.json" for batch in hits for p in batch)
+
+
+def test_start_is_true_when_collect_paths_exceeds_ready_timeout(tmp_path: Path) -> None:
+    """An existing directory store keeps the watch when path collect is slow."""
+    _write_session(tmp_path, "sess")
+    w = TraceTreeWatch(tmp_path, lambda: None)
+    real = w._collect_paths
+
+    def slow() -> list[Path]:
+        deadline = time.monotonic() + 2.3
+        while time.monotonic() < deadline:
+            if w._stop.is_set():
+                return []
+            time.sleep(0.05)
+        return real()
+
+    w._collect_paths = slow
+    t0 = time.perf_counter()
+    assert w.start() is True
+    assert time.perf_counter() - t0 < 2.2
+    try:
+        assert w._thread is not None and w._thread.is_alive()
+        wait_until_sync(
+            lambda: bool(w.subscribed_paths()),
+            description="slow collect still arms subscribed paths",
+            timeout=4.0,
+        )
+    finally:
+        w.stop()
+    assert w.subscribed_paths()
+
+
+def test_watch_target_paths_subscribes_parent_of_jsonl_locator(tmp_path: Path) -> None:
+    """Non-recursive watch must subscribe the parent dir of a file locator."""
+    store = tmp_path / "jsonl-projects"
+    project = store / "-home-proj"
+    project.mkdir(parents=True)
+    jsonl = project / "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee.jsonl"
+    jsonl.write_text("{}\n", encoding="utf-8")
+    targets = {p.resolve() for p in watch_target_paths([store], [jsonl])}
+    assert store.resolve() in targets
+    assert project.resolve() in targets
+    assert jsonl.resolve() not in targets
+    assert all(p.is_dir() for p in targets)

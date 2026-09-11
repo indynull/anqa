@@ -89,7 +89,7 @@ def launch_tui(
     free, then attach as a client. When *ensure_anqad* is false, attach only if
     a control process is already live. Pass *socket* ``False`` to run without control.
     """
-    from .control.daemon import ensure_control_daemon
+    from .control.daemon import ensure_control_daemon, include_host_for_explicit_store
     from .control.server import default_socket_path
     from .paths import resolve_catalog_root
     from .ui.app import AnqaApp
@@ -120,6 +120,7 @@ def launch_tui(
         result = ensure_control_daemon(
             socket_path=socket_path,
             traces_path=tr,
+            include_host=include_host_for_explicit_store(tr),
         )
         if not result.ok:
             typer.echo(

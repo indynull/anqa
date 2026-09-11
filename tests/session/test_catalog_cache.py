@@ -13,6 +13,7 @@ from anqa.session.catalog import (
     locator_index_from_rows,
     session_meta_from_catalog_row,
 )
+from anqa.session.mtime_export import default_catalog_snapshot
 
 
 def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
@@ -24,6 +25,24 @@ def _write_sess(root: Path, name: str, title: str, *, kind: str = "") -> Path:
     (sd / "summary.json").write_text(json.dumps(body), encoding="utf-8")
     (sd / "updates.jsonl").write_text("{}\n", encoding="utf-8")
     return sd
+
+
+def _write_row_format_2_snapshot(root: Path, rows: list[dict[str, object]]) -> Path:
+    dest = default_catalog_snapshot(root)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(
+        json.dumps(
+            {
+                "version": "1.0.0",
+                "rowFormat": 2,
+                "root": str(root),
+                "stamps": [],
+                "sessions": rows,
+            }
+        ),
+        encoding="utf-8",
+    )
+    return dest
 
 
 def test_locator_index_keeps_first_row_for_duplicate_ids() -> None:
@@ -880,3 +899,121 @@ def test_publish_store_membership_notifies_empty_session() -> None:
     loop.run_until_complete(apply._publish([], [], {"ses_new": True}))
     loop.close()
     assert notes == [("session/changed", {"sessionId": "", "listChanged": True})]
+
+
+def test_get_force_seeds_snapshot_rows_before_rebuild_wait(tmp_path: Path, monkeypatch) -> None:
+    """Cold get(force=True) must return on-disk snapshot rows while rebuild runs."""
+    import anqa.session.catalog as catalog_mod
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "From disk",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+
+    release = threading.Event()
+    started = threading.Event()
+    real = catalog_mod.list_session_catalog
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+
+    class _JumpClock:
+        def __init__(self) -> None:
+            self._n = 0
+
+        def monotonic(self) -> float:
+            self._n += 1
+            return float(self._n * 1000.0)
+
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    cache._time = _JumpClock()
+    rows = cache.get(force=True)
+    assert started.wait(timeout=2)
+    assert {str(row.get("sessionId")) for row in rows} == {"snap-sess"}
+    with cache._lock:
+        assert cache._building is True
+    release.set()
+
+
+def test_list_for_rpc_cold_seeds_snapshot_rows(tmp_path: Path, monkeypatch) -> None:
+    """Cold session/list must return on-disk snapshot rows without waiting."""
+    import anqa.session.catalog as catalog_mod
+
+    traces = tmp_path / "sessions"
+    traces.mkdir()
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "From disk",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+
+    release = threading.Event()
+    started = threading.Event()
+    real = catalog_mod.list_session_catalog
+
+    def blocked(*args: object, **kwargs: object) -> object:
+        started.set()
+        if not release.wait(timeout=8):
+            raise AssertionError("scan still blocked")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(catalog_mod, "list_session_catalog", blocked)
+    cache = SessionCatalogCache(traces_path=traces, include_host=False)
+    listed = cache.list_for_rpc(limit=50)
+    assert started.wait(timeout=2)
+    assert listed["total"] == 1
+    assert listed["building"] is True
+    assert listed["incomplete"] is True
+    assert {str(row.get("sessionId")) for row in listed["sessions"]} == {"snap-sess"}
+    release.set()
+
+
+def test_first_rebuild_after_snapshot_seed_invokes_on_rebuilt(tmp_path: Path) -> None:
+    """Seeded snapshot ids must not suppress the first catalog-ready notify."""
+    traces = tmp_path / "sessions"
+    _write_sess(traces, "snap-sess", "From disk")
+    _write_row_format_2_snapshot(
+        traces,
+        [
+            {
+                "sessionId": "snap-sess",
+                "path": "grok:snap-sess",
+                "title": "From disk",
+                "status": "complete",
+                "harness": "grok",
+                "sortEpoch": 1_700_000_000,
+            }
+        ],
+    )
+
+    hits: list[int] = []
+    cache = SessionCatalogCache(traces_path=traces, include_host=False, ttl=3600.0)
+    cache._on_rebuilt = lambda: hits.append(1)
+    cache._seed_from_snapshots()
+    rows = cache.get(force=True)
+    assert len(rows) == 1
+    assert hits == [1]

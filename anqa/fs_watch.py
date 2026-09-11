@@ -11,6 +11,8 @@ import threading
 from collections.abc import Callable
 from pathlib import Path
 
+from watchfiles import watch
+
 from .session.watch import (
     PLANE_FILE_NAMES,
     plane_event_path,
@@ -103,8 +105,9 @@ class TraceTreeWatch:
     def start(self) -> bool:
         """Start watching. True when the watch thread is up.
 
-        Ready is set after path collect, before ``watchfiles`` arms, so a
-        large tree cannot make ``start()`` return false.
+        Ready is set after path collect, before ``watchfiles`` arms.
+        If collect takes longer than two seconds the thread is still
+        running, so ``start()`` returns true.
         """
         if not self._root.is_dir() and self._session_dir is None:
             return False
@@ -113,15 +116,11 @@ class TraceTreeWatch:
         thread = threading.Thread(target=self._run, name="anqa-plane-watch", daemon=True)
         self._thread = thread
         thread.start()
-        return self._ready.wait(2.0)
+        if self._ready.wait(2.0):
+            return True
+        return thread.is_alive()
 
     def _run(self) -> None:
-        try:
-            from watchfiles import watch
-        except ImportError:
-            logger.warning("watchfiles not installed; live FS watch disabled")
-            self._ready.set()
-            return
         debounce_ms = int(self._debounce_s * 1000)
         while not self._stop.is_set():
             paths = self._collect_paths()

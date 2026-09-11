@@ -226,3 +226,38 @@ def test_session_catalog_row_none_on_bad_dir(tmp_path: Path) -> None:
     missing = tmp_path / "nope"
     assert session_catalog_row(empty) is None
     assert session_catalog_row(missing) is None
+
+
+def test_resolve_session_reference_does_not_collect_all_sessions(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Id resolve is a name lookup. It must not list every session dir."""
+    from anqa.session import sources as sources_mod
+
+    store = tmp_path / "sessions"
+    sess = _write_session(store, "only-me")
+    nested = store / "%2Fproj" / "cwd-sess"
+    nested.mkdir(parents=True)
+    (nested / "summary.json").write_text(
+        json.dumps({"info": {"id": "cwd-sess"}, "generated_title": "cwd"}),
+        encoding="utf-8",
+    )
+    (nested / "updates.jsonl").write_text("", encoding="utf-8")
+    (nested / "events.jsonl").write_text("{}\n", encoding="utf-8")
+
+    def hang(*_a: object, **_k: object) -> object:
+        raise AssertionError("collect_session_dirs must not run")
+
+    monkeypatch.setattr(sources_mod, "collect_session_dirs", hang)
+
+    found = resolve_session_reference("only-me", traces_path=store, include_host=False)
+    assert found == sess.resolve()
+    found_cwd = resolve_session_reference("cwd-sess", traces_path=store, include_host=False)
+    assert found_cwd == nested.resolve()
+
+
+def test_include_host_for_explicit_store() -> None:
+    from anqa.control.daemon import include_host_for_explicit_store
+
+    assert include_host_for_explicit_store(None) is None
+    assert include_host_for_explicit_store(Path("/tmp/store")) is False
