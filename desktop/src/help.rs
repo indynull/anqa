@@ -3,7 +3,7 @@
 //! The footer prints [`ActionTable::footer_hints`] on one line and status
 //! on the next. [`pattern::cheatsheet`] lists the full table.
 
-use iced::keyboard::Key;
+use iced::keyboard::{Key, Modifiers};
 use icedtea::action::{Action, ActionTable};
 use icedtea::shortcut::Shortcut;
 
@@ -41,6 +41,30 @@ fn scope_tabs(scope: KeyScope) -> &'static [Tab] {
     }
 }
 
+/// Catalog `ctrl+` is the Control key on every host. icedtea `Shortcut::parse`
+/// remaps `ctrl` to Command on macOS, which would print `cmd+tab` and collide
+/// with the system app switcher.
+fn catalog_shortcut(spec: &str) -> Option<Shortcut> {
+    let spec = spec.trim().to_ascii_lowercase();
+    if spec.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = spec.split('+').collect();
+    let (key, mods) = parts.split_last()?;
+    let mut modifiers = Modifiers::empty();
+    for part in mods {
+        match *part {
+            "ctrl" | "control" => modifiers |= Modifiers::CTRL,
+            "shift" => modifiers |= Modifiers::SHIFT,
+            "alt" | "option" => modifiers |= Modifiers::ALT,
+            "cmd" | "super" | "meta" | "win" => modifiers |= Modifiers::LOGO,
+            _ => return None,
+        }
+    }
+    let parsed = Shortcut::parse(key)?;
+    Some(Shortcut::new(modifiers, parsed.key))
+}
+
 fn shortcut_label(overlay: &KeyOverlay, id: &str, spec: &str) -> String {
     if let Some(label) = overlay.sequence_display(id, spec) {
         return label;
@@ -50,7 +74,7 @@ fn shortcut_label(overlay: &KeyOverlay, id: &str, spec: &str) -> String {
         .split(',')
         .map(str::trim)
         .filter(|part| !part.is_empty())
-        .filter_map(Shortcut::parse)
+        .filter_map(catalog_shortcut)
         .map(|s| s.to_string())
         .collect::<Vec<_>>()
         .join(" / ")
@@ -78,7 +102,7 @@ fn push(
     }
     let resolved = overlay.hud_spec(id, spec);
     let first = resolved.split(',').next().unwrap_or(resolved.as_str());
-    let parsed = Shortcut::parse(first).expect("HUD shortcut spec");
+    let parsed = catalog_shortcut(first).expect("HUD shortcut spec");
     table.insert(
         Action::new(id, title, msg)
             .with_shortcut(parsed)
@@ -609,7 +633,10 @@ mod tests {
             notes_composing: false,
         });
         let blob = browse.footer_hints().join("  ·  ");
-        assert!(blob.contains("ctrl+tab panes"));
+        assert!(
+            blob.contains("ctrl+tab panes"),
+            "Control+Tab on every host, got {blob}"
+        );
         let notes = footer_table(KeyScope {
             browse: true,
             help_open: false,
