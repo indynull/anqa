@@ -6,6 +6,7 @@ import asyncio
 import json
 import tempfile
 from collections.abc import Callable
+from contextlib import suppress
 from importlib import import_module
 from pathlib import Path
 
@@ -171,8 +172,14 @@ async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> Non
         socket_path=socket_path,
         traces_path=traces,
     )
-    await owner.start()
+    serve = asyncio.create_task(daemon.serve_control_forever(owner, write_pid=False))
     try:
+        for _ in range(50):
+            if socket_path.exists():
+                break
+            await asyncio.sleep(0.05)
+        else:
+            raise AssertionError("control socket missing")
         app = AnqaApp(
             traces_path=traces,
             control_socket=socket_path,
@@ -203,6 +210,9 @@ async def test_tui_attach_does_not_toast_scanning_control(tmp_path: Path) -> Non
             app._prepare_clean_exit()
             await pilot.pause()
     finally:
+        serve.cancel()
+        with suppress(asyncio.CancelledError):
+            await serve
         await owner.close()
 
 
