@@ -615,21 +615,24 @@ def _render_outline_document(
                 lines.extend(_render_note_md(note, schema))
         text = "\n".join(lines).rstrip() + "\n"
     else:
-        text = json.dumps(
-            {
-                "sessionId": session_id,
-                "notesRevision": snapshot.revision,
-                "title": title,
-                "model": model,
-                "outcome": outcome,
-                "eventCount": event_count,
-                "promptIndexes": list(prompt_indexes),
-                "bodies": False,
-                "turns": turns,
-            },
-            indent=2,
-            ensure_ascii=False,
-        ) + "\n"
+        text = (
+            json.dumps(
+                {
+                    "sessionId": session_id,
+                    "notesRevision": snapshot.revision,
+                    "title": title,
+                    "model": model,
+                    "outcome": outcome,
+                    "eventCount": event_count,
+                    "promptIndexes": list(prompt_indexes),
+                    "bodies": False,
+                    "turns": turns,
+                },
+                indent=2,
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
     return EditorDocument(
         session_id=session_id,
         notes_revision=snapshot.revision,
@@ -663,9 +666,7 @@ def render_editor_document(
         raise ValueError(msg)
 
     if not bodies:
-        return _render_outline_document(
-            session_dir, format=fmt, prompt_index=prompt_index
-        )
+        return _render_outline_document(session_dir, format=fmt, prompt_index=prompt_index)
 
     (
         session_id,
