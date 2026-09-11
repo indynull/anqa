@@ -82,8 +82,12 @@ def run_hud(
         )
 
         word = summon.strip().lower()
-        if word not in {"show", "hide", "toggle"}:
+        verb = word.split(None, 1)[0]
+        if verb not in {"show", "hide", "toggle", "open"}:
             sys.stderr.write(f"error: unknown summon action {summon!r}\n")
+            return 1
+        if verb == "open" and len(word.split()) < 2:
+            sys.stderr.write("error: open needs a session id\n")
             return 1
         if summon_socket_accepts() or hud_process_running():
             # Prefer the socket when the process is up; brief wait if racing boot.

@@ -31,6 +31,7 @@ fn main() {
                --hide              Hide the overlay (running anqa)\n\
                --toggle            Show or hide (running anqa; Sway bind target).
                                    Forwards XDG_ACTIVATION_TOKEN to the palette.\n\
+               --open <id>         Show the palette and open that session.\n\
                -V, --version       Print the product version\n\
                -h, --help          Show this help\n\
              \n\
@@ -39,6 +40,22 @@ fn main() {
             anqa_hud::VERSION
         );
         std::process::exit(0);
+    }
+    if let Some(sid) = cli_open_session(&args) {
+        let req = anqa_hud::summon::SummonRequest::open(sid);
+        match anqa_hud::summon::plan_summon_cli(
+            anqa_hud::summon::SummonAction::Show,
+            anqa_hud::summon::send_request(req),
+        ) {
+            Ok(anqa_hud::summon::SummonCli::Done) => std::process::exit(0),
+            Ok(anqa_hud::summon::SummonCli::StartShown) => {
+                std::env::set_var(anqa_hud::tray::SHOW_ON_START_ENV, "1");
+            }
+            Err(err) => {
+                eprintln!("anqa: {err}");
+                std::process::exit(1);
+            }
+        }
     }
     if let Some(action) = cli_summon_action(&args) {
         match anqa_hud::summon::plan_summon_cli(action, anqa_hud::summon::send_command(action)) {
@@ -63,6 +80,18 @@ fn main() {
     };
     // Tray and notify threads outlive the iced loop.
     std::process::exit(code);
+}
+
+fn cli_open_session(args: &[String]) -> Option<String> {
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a.as_str() == "--open" {
+            return it
+                .next()
+                .and_then(|s| anqa_hud::summon::sanitize_session_id(s));
+        }
+    }
+    None
 }
 
 fn cli_summon_action(args: &[String]) -> Option<anqa_hud::summon::SummonAction> {

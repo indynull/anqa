@@ -6378,12 +6378,43 @@ impl Hud {
     }
 
     fn on_summon(&mut self, req: crate::summon::SummonRequest) -> Task<Message> {
-        let crate::summon::SummonRequest { action, token } = req;
+        let crate::summon::SummonRequest {
+            action,
+            token,
+            session_id,
+        } = req;
         self.store_summon_token(action, token);
-        match action {
+        let hide = self.summon_hides(action);
+        let shown = match action {
             crate::summon::SummonAction::Show => self.show_palette(),
             crate::summon::SummonAction::Hide => self.hide_palette(),
             crate::summon::SummonAction::Toggle => self.on_hotkey(),
+        };
+        if hide {
+            return shown;
+        }
+        if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
+            return Task::batch([shown, self.open_summoned_session(&sid)]);
+        }
+        shown
+    }
+
+    fn open_summoned_session(&mut self, sid: &str) -> Task<Message> {
+        let sid = sid.trim();
+        if sid.is_empty() {
+            return Task::none();
+        }
+        self.query.clear();
+        self.abandon_catalog_search();
+        let path = self
+            .all_sessions
+            .iter()
+            .find(|row| row.session_id == sid)
+            .map(|row| row.path.clone())
+            .unwrap_or_default();
+        match crate::live::find_session_index(self.sessions(), sid, &path) {
+            Some(i) => self.update(Message::SelectSession(i)),
+            None => Task::none(),
         }
     }
 
@@ -14092,6 +14123,7 @@ mod tests {
         let _ = hud.on_summon(crate::summon::SummonRequest {
             action: crate::summon::SummonAction::Show,
             token: Some("tok-1".into()),
+            session_id: None,
         });
         assert_eq!(hud.pending_activation_token.as_deref(), Some("tok-1"));
         let _ = hud.on_summon(crate::summon::SummonRequest::new(
@@ -14110,6 +14142,7 @@ mod tests {
         let _ = hud.on_summon(crate::summon::SummonRequest {
             action: crate::summon::SummonAction::Toggle,
             token: Some("tok-2".into()),
+            session_id: None,
         });
         assert_eq!(hud.pending_activation_token.as_deref(), Some("tok-2"));
     }
@@ -14125,6 +14158,7 @@ mod tests {
         let _ = hud.on_summon(crate::summon::SummonRequest {
             action: crate::summon::SummonAction::Toggle,
             token: Some("fresh".into()),
+            session_id: None,
         });
         assert_eq!(hud.pending_activation_token, None);
     }

@@ -328,16 +328,23 @@ def summon_socket_accepts(path: Path | None = None) -> bool:
 
 
 def send_summon_command(action: str, *, path: Path | None = None) -> int:
-    """Send ``show`` / ``hide`` / ``toggle`` to a running HUD.
+    """Send ``show`` / ``hide`` / ``toggle`` / ``open <id>`` to a running HUD.
 
-    :param action: One of ``show``, ``hide``, ``toggle``.
+    :param action: One of ``show``, ``hide``, ``toggle``, or ``open <sessionId>``.
     :returns: Process exit code from the binary, or 1 on failure, 127 missing.
     """
     word = action.strip().lower()
-    if word not in {"show", "hide", "toggle"}:
+    bits = word.split()
+    if bits and bits[0] == "open":
+        if len(bits) < 2:
+            sys.stderr.write("error: open needs a session id\n")
+            return 1
+        argv = ["--open", bits[1]]
+    elif word in {"show", "hide", "toggle"}:
+        argv = [f"--{word}"]
+    else:
         sys.stderr.write(f"error: unknown summon action {action!r}\n")
         return 1
-    flag = f"--{word}"
     binary = find_hud_binary() or ensure_hud_binary()
     if binary is None:
         return 127
@@ -345,9 +352,9 @@ def send_summon_command(action: str, *, path: Path | None = None) -> int:
     if path is not None:
         env["ANQA_HUD_SUMMON_SOCKET"] = str(Path(path).expanduser())
     try:
-        proc = subprocess.run([str(binary), flag], env=env, check=False)
+        proc = subprocess.run([str(binary), *argv], env=env, check=False)
     except OSError as exc:
-        sys.stderr.write(f"error: could not run {binary} {flag}: {exc}\n")
+        sys.stderr.write(f"error: could not run {binary} {argv}: {exc}\n")
         return 1
     return int(proc.returncode)
 
